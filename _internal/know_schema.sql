@@ -95,30 +95,42 @@ CREATE TABLE know_documents (
 -- Three-digit padding supports up to 999 siblings per level. Deterministic
 -- lexical ordering — no recursive CTE needed for subtree or sibling queries.
 --
--- Sibling ordering: uq_sibling_order prevents duplicate positions among
--- siblings with a non-NULL parent. MySQL treats NULL as distinct in UNIQUE
--- constraints, so top-level units (parent_id IS NULL) are not covered by the
--- constraint — Repository enforces ordering for root-level units.
+-- Sibling ordering is enforced atomically at the database level for both
+-- root-level and non-root units.
+--
+-- parent_id_for_order is a generated column:
+--   COALESCE(parent_id, 0)
+--
+-- This normalizes root-level rows (parent_id IS NULL) to the sentinel value 0
+-- for ordering purposes only. The unique constraint:
+--   UNIQUE(document_id, parent_id_for_order, sort_order)
+-- therefore applies the same sibling-position rule to:
+--   - root units within one document
+--   - child units under the same parent within one document
+--
+-- This avoids the race condition inherent in repository-side prechecks for
+-- root-level sort_order collisions.
 --
 -- The UNIQUE index also serves as the primary query index for the dominant
 -- access pattern: fetching children of a parent sorted by position.
 
 CREATE TABLE know_units (
-	id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
-	document_id   INT UNSIGNED NOT NULL,
-	parent_id     INT UNSIGNED DEFAULT NULL,
-	unit_type     VARCHAR(50) NOT NULL,
-	identifier    VARCHAR(100) DEFAULT NULL,
-	title         VARCHAR(500) DEFAULT NULL,
-	body          TEXT DEFAULT NULL,
-	sort_order    INT UNSIGNED NOT NULL DEFAULT 0,
-	depth         TINYINT UNSIGNED NOT NULL DEFAULT 0,
-	path          VARCHAR(500) DEFAULT NULL,
-	metadata_json JSON DEFAULT NULL,
-	created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+	id                  INT UNSIGNED NOT NULL AUTO_INCREMENT,
+	document_id         INT UNSIGNED NOT NULL,
+	parent_id           INT UNSIGNED DEFAULT NULL,
+	parent_id_for_order INT UNSIGNED AS (COALESCE(parent_id, 0)) STORED,
+	unit_type           VARCHAR(50) NOT NULL,
+	identifier          VARCHAR(100) DEFAULT NULL,
+	title               VARCHAR(500) DEFAULT NULL,
+	body                TEXT DEFAULT NULL,
+	sort_order          INT UNSIGNED NOT NULL DEFAULT 0,
+	depth               TINYINT UNSIGNED NOT NULL DEFAULT 0,
+	path                VARCHAR(500) DEFAULT NULL,
+	metadata_json       JSON DEFAULT NULL,
+	created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 	PRIMARY KEY (id),
-	UNIQUE KEY uq_sibling_order (document_id, parent_id, sort_order),
+	UNIQUE KEY uq_sibling_order (document_id, parent_id_for_order, sort_order),
 	KEY idx_document (document_id),
 	KEY idx_parent (parent_id),
 	KEY idx_doc_type (document_id, unit_type),
@@ -280,19 +292,19 @@ CREATE TABLE know_synonym_terms (
 -- Pruned by know:prune-query-log.
 -- ============================================================================
 
--- CREATE TABLE know_query_log (
--- 	id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
--- 	knowledge_base_id INT UNSIGNED NOT NULL,
--- 	query_text        TEXT NOT NULL,
--- 	strategy          VARCHAR(50) NOT NULL DEFAULT 'hybrid',
--- 	chunk_limit       TINYINT UNSIGNED DEFAULT NULL,
--- 	results_count     SMALLINT UNSIGNED DEFAULT NULL,
--- 	top_chunk_ids     JSON DEFAULT NULL,
--- 	reranked          TINYINT(1) NOT NULL DEFAULT 0,
--- 	duration_ms       INT UNSIGNED DEFAULT NULL,
--- 	metadata_json     JSON DEFAULT NULL,
--- 	created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
--- 	PRIMARY KEY (id),
--- 	KEY idx_kb_created (knowledge_base_id, created_at),
--- 	CONSTRAINT fk_qlog_kb FOREIGN KEY (knowledge_base_id) REFERENCES know_bases (id) ON DELETE CASCADE
--- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE know_query_log (
+	id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+	knowledge_base_id INT UNSIGNED NOT NULL,
+	query_text        TEXT NOT NULL,
+	strategy          VARCHAR(50) NOT NULL DEFAULT 'hybrid',
+	chunk_limit       TINYINT UNSIGNED DEFAULT NULL,
+	results_count     SMALLINT UNSIGNED DEFAULT NULL,
+	top_chunk_ids     JSON DEFAULT NULL,
+	reranked          TINYINT(1) NOT NULL DEFAULT 0,
+	duration_ms       INT UNSIGNED DEFAULT NULL,
+	metadata_json     JSON DEFAULT NULL,
+	created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (id),
+	KEY idx_kb_created (knowledge_base_id, created_at),
+	CONSTRAINT fk_qlog_kb FOREIGN KEY (knowledge_base_id) REFERENCES know_bases (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
