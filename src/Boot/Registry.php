@@ -51,13 +51,47 @@ final class Registry {
 	 * @var array<string, mixed>
 	 */
 	public const CFG_HTTP = [
-		'provider_skeleton' => [
-			'enabled'  => true,
-			'greeting' => [
-				'prefix' => 'Hello',
+	
+		'knowledgebase' => [
+			'embedding_profile' => 'openai-text-embedding-3-small',
+			'chat_profile'      => 'openai-gpt-4o-mini',
+			'chunker' => [
+				'strategy'       => 'fixed_size',
+				'max_tokens'     => 512,
+				'overlap_tokens' => 50,
+			],
+			'ingest' => [
+				'embedding_batch_size' => 100,
+			],
+			'retrieval' => [
+				'lexical'              => true,
+				'vector'               => true,
+				'rerank'               => false,
+				'synonym_expansion'    => true,
+				'top_k'                => 5,
+				'candidate_multiplier' => 3,
+				'min_similarity'       => 0.70,
+				'min_score'            => 0.0,
+				'min_chunks'           => 1,
+				'allow_low_context'    => false,
+				'fusion' => [
+					'method' => 'rrf',
+					'rrf_k'  => 60,
+				],
+				'rerank_profile' => null,
+			],
+			'prompt' => [
+				'system_template'    => null,
+				'max_context_tokens' => 4000,
+				'language'           => null,
+			],
+			'query_log' => [
+				'enabled' => false,
 			],
 		],
+		
 	];
+
 
 	/**
 	 * HTTP routes.
