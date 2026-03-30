@@ -28,16 +28,16 @@ use CitOmni\KnowledgeBase\Util\Chunker;
  *
  * Receives pre-parsed structural data (units with their text content).
  * Parsing raw source formats (HTML, PDF, plain text) into unit structures
- * is an app-side concern — the package is format-agnostic.
+ * is an app-side concern - the package is format-agnostic.
  *
  * Behavior:
  * - Idempotent: matching content_hash for the same slug = skip (no-op).
  *   When content is unchanged but document-level metadata differs (title,
- *   effective_date, etc.), only the document row is updated — units, chunks,
+ *   effective_date, etc.), only the document row is updated - units, chunks,
  *   and embeddings are untouched.
  * - Replace-by-slug: hash mismatch = delete old + insert new in one transaction.
  *   The delete + insert of document/units/chunks is atomic. Embedding happens
- *   outside the transaction — if embedding fails, the document is committed
+ *   outside the transaction - if embedding fails, the document is committed
  *   with chunks (usable for lexical search) and the operation returns
  *   status 'partial'. Use EmbeddingRepository::countMissing() for observability
  *   and a re-embed command for recovery.
@@ -49,7 +49,7 @@ use CitOmni\KnowledgeBase\Util\Chunker;
  * for idempotent re-import. When `text` is provided and the hash matches an
  * existing document with the same slug, units/chunks/embeddings are not
  * re-generated. When `text` is null, content_hash is not computed and
- * idempotent skip is disabled — every call produces a full re-ingest.
+ * idempotent skip is disabled - every call produces a full re-ingest.
  *
  * Return shape:
  *   - status 'ok':      Operation completed successfully. reason is null for
@@ -71,7 +71,7 @@ use CitOmni\KnowledgeBase\Util\Chunker;
 final class IngestDocument extends BaseOperation {
 
 	// ----------------------------------------------------------------
-	// Ingest state — reset per execute() call
+	// Ingest state - reset per execute() call
 	// ----------------------------------------------------------------
 
 	private UnitRepository $unitRepo;
@@ -83,6 +83,9 @@ final class IngestDocument extends BaseOperation {
 	private int $chunksCount = 0;
 	private int $embeddingsCount = 0;
 	private array $embeddingQueue = [];
+
+
+
 
 	// ----------------------------------------------------------------
 	// Public API
@@ -196,7 +199,7 @@ final class IngestDocument extends BaseOperation {
 		// Embedding happens outside this transaction (step 8). If embedding
 		// fails, the document is committed with chunks and usable for lexical
 		// search. There is no visible gap where the document disappears during
-		// re-ingest — the delete + insert is atomic.
+		// re-ingest - the delete + insert is atomic.
 
 		$documentId = $this->app->db->transaction(function() use ($existing, $documentRepo, $documentData, $units): int {
 			if ($existing !== null) {
@@ -224,14 +227,14 @@ final class IngestDocument extends BaseOperation {
 			try {
 				$this->embedInBatches($this->embeddingQueue, $embeddingProfile, $embeddingBatchSize, $embeddingRepo);
 			} catch (IngestException $e) {
-				// Contract violation (e.g. vector count mismatch) — programming
+				// Contract violation (e.g. vector count mismatch) - programming
 				// error, not a recoverable external failure. Bubble up.
 				throw $e;
 			} catch (\Exception $e) {
-				// External/provider failure (timeout, API error, network) —
+				// External/provider failure (timeout, API error, network) -
 				// recoverable. Report as partial completion.
 				// \Error subclasses (TypeError, etc.) are programming bugs and
-				// are not caught here — they propagate as hard failures.
+				// are not caught here - they propagate as hard failures.
 				$embeddingError = $e->getMessage();
 			}
 		}
@@ -266,6 +269,13 @@ final class IngestDocument extends BaseOperation {
 			'error' => null,
 		];
 	}
+
+
+
+
+
+
+
 
 	// ----------------------------------------------------------------
 	// Content-unchanged path
@@ -312,6 +322,7 @@ final class IngestDocument extends BaseOperation {
 		];
 	}
 
+
 	/**
 	 * Compare document-level fields between the existing row and new input.
 	 *
@@ -357,7 +368,7 @@ final class IngestDocument extends BaseOperation {
 
 		// -- Optional nullable string fields ----------------------------------
 		// Only compared when present in input. If the caller does not include
-		// a field, we do not touch it — there is no way to distinguish
+		// a field, we do not touch it - there is no way to distinguish
 		// "caller wants to keep the old value" from "caller forgot to send it".
 
 		if (\array_key_exists('source_ref', $input)) {
@@ -391,6 +402,13 @@ final class IngestDocument extends BaseOperation {
 
 		return $changes;
 	}
+
+
+
+
+
+
+
 
 	// ----------------------------------------------------------------
 	// Document payload
@@ -428,6 +446,13 @@ final class IngestDocument extends BaseOperation {
 		return $data;
 	}
 
+
+
+
+
+
+
+
 	// ----------------------------------------------------------------
 	// Unit tree insertion
 	// ----------------------------------------------------------------
@@ -437,12 +462,12 @@ final class IngestDocument extends BaseOperation {
 	 *
 	 * Each unit in the input array may contain:
 	 *   - unit_type (required): string
-	 *   - sort_order (required): int 0–999
+	 *   - sort_order (required): int 0-999
 	 *   - identifier: ?string (e.g. "§ 34, stk. 2")
 	 *   - title: ?string
-	 *   - body: ?string — text content to chunk
+	 *   - body: ?string - text content to chunk
 	 *   - metadata: ?array
-	 *   - children: ?array — recursive child units
+	 *   - children: ?array - recursive child units
 	 *
 	 * Mutates instance state: $this->unitsCount, $this->chunksCount,
 	 * $this->embeddingQueue.
@@ -516,6 +541,7 @@ final class IngestDocument extends BaseOperation {
 		}
 	}
 
+
 	/**
 	 * Chunk one unit's body text and queue the resulting chunks for embedding.
 	 *
@@ -549,7 +575,7 @@ final class IngestDocument extends BaseOperation {
 		// insertBatch() returns affected row count, not IDs. A separate read
 		// is the only reliable way to get IDs without assuming sequential
 		// auto_increment (which is fragile under concurrent inserts).
-		// This is an indexed lookup on (unit_id, chunk_index) — negligible cost.
+		// This is an indexed lookup on (unit_id, chunk_index) - negligible cost.
 		// Ordering is deterministic: ORDER BY chunk_index ASC, id ASC.
 		$persistedChunks = $this->chunkRepo->findByUnit($unitId);
 		foreach ($persistedChunks as $persisted) {
@@ -559,6 +585,13 @@ final class IngestDocument extends BaseOperation {
 			];
 		}
 	}
+
+
+
+
+
+
+
 
 	// ----------------------------------------------------------------
 	// Embedding
@@ -574,7 +607,7 @@ final class IngestDocument extends BaseOperation {
 	 *
 	 * On failure, previously committed batches remain in the database.
 	 * $this->embeddingsCount reflects the actual number of rows inserted
-	 * before the failure — the caller can use this for accurate partial
+	 * before the failure - the caller can use this for accurate partial
 	 * completion reporting.
 	 *
 	 * Mutates instance state: $this->embeddingsCount.
@@ -631,11 +664,12 @@ final class IngestDocument extends BaseOperation {
 		}
 	}
 
+
 	/**
 	 * Build the text sent to VectorEmbedder for one chunk.
 	 *
 	 * Includes overlap context (context_before / context_after) because
-	 * overlap is embedding input — not prompt input (§9). This gives the
+	 * overlap is embedding input - not prompt input (§9). This gives the
 	 * embedding model richer positional context for the chunk.
 	 */
 	private function buildEmbeddingText(array $chunk): string {
@@ -649,6 +683,13 @@ final class IngestDocument extends BaseOperation {
 		}
 		return \implode("\n", $parts);
 	}
+
+
+
+
+
+
+
 
 	// ----------------------------------------------------------------
 	// State management
@@ -667,6 +708,12 @@ final class IngestDocument extends BaseOperation {
 		$this->embeddingsCount = 0;
 		$this->embeddingQueue = [];
 	}
+
+
+
+
+
+
 
 	// ----------------------------------------------------------------
 	// Input validation
@@ -702,6 +749,12 @@ final class IngestDocument extends BaseOperation {
 		return $value;
 	}
 
+
+
+
+
+
+
 	// ----------------------------------------------------------------
 	// Comparison helpers
 	// ----------------------------------------------------------------
@@ -709,7 +762,7 @@ final class IngestDocument extends BaseOperation {
 	/**
 	 * Normalize a nullable string value for deterministic comparison.
 	 *
-	 * Trims whitespace and collapses empty strings to null — matching the
+	 * Trims whitespace and collapses empty strings to null - matching the
 	 * normalization that DocumentRepository applies on write.
 	 */
 	private function normalizeNullableStringForComparison(mixed $value): ?string {
@@ -722,6 +775,7 @@ final class IngestDocument extends BaseOperation {
 		$value = \trim($value);
 		return $value === '' ? null : $value;
 	}
+
 
 	/**
 	 * Compare two metadata values for equality.
@@ -737,6 +791,7 @@ final class IngestDocument extends BaseOperation {
 	private function metadataEquals(mixed $new, ?array $old): bool {
 		return $this->canonicalizeForComparison($new) === $this->canonicalizeForComparison($old);
 	}
+
 
 	/**
 	 * Canonicalize a value to a deterministic JSON string for comparison.
@@ -754,6 +809,19 @@ final class IngestDocument extends BaseOperation {
 		return \json_encode($value, \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES | \JSON_THROW_ON_ERROR);
 	}
 
+
+	/**
+	 * Recursively sort associative array keys for deterministic comparison.
+	 *
+	 * Associative arrays are sorted by key using ksort(). Sequential lists
+	 * (as determined by array_is_list()) keep their original order because
+	 * list element ordering is semantically significant.
+	 *
+	 * This helper is used only for metadata comparison canonicalization.
+	 *
+	 * @param array $array Array to normalize in place.
+	 * @return void
+	 */
 	private function ksortRecursive(array &$array): void {
 		if (!\array_is_list($array)) {
 			\ksort($array);
@@ -764,4 +832,6 @@ final class IngestDocument extends BaseOperation {
 			}
 		}
 	}
+
+
 }
