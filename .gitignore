@@ -1,2 +1,3 @@
 # Globals
 *.bck
+_internal/
