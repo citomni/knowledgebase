@@ -104,11 +104,12 @@ treat `token_count` / `token_estimate` as approximate.
 **Ingest** (CLI/admin — write path):
 ```
 Source text
-  → Parser (app-side, domain-specific)
-  → Units (stable structural elements)
-  → Chunker (units → retrieval atoms)
-  → VectorEmbedder (chunks → embeddings)
-  → Persist (documents + units + chunks + embeddings)
+→ Parser (app-side, domain-specific)
+→ Units (stable structural elements)
+→ Chunker (units → retrieval atoms)
+→ Persist (documents + units + chunks)
+→ VectorEmbedder (chunks → embeddings)
+→ Persist embeddings
 ```
 
 **Query** (HTTP/CLI — read path):
@@ -547,22 +548,39 @@ Operation receives an empty chunk list and applies the no-hit behavior (§6).
 
 ## 10. Ingest replacement semantics
 
-### V1 strategy: replace by slug (transactionally atomic)
+### V1 strategy: replace by slug (atomic document/chunk write, embeddings after commit)
 
 When `IngestDocument` receives a document with a `slug` that already exists in the
 target knowledge base, the flow is:
 
-1. **Check content_hash first.** If the existing document has a `content_hash` that
-   matches the new source text hash → **skip entirely** (no-op). Return
-   `['skipped' => true, 'reason' => 'content_unchanged']`.
+1. **Check content_hash first.** The `text` field is the canonical source input used
+   to compute `content_hash` for idempotent re-import.
+   - If `text` is provided and the existing document has the same `content_hash`:
+     - if no document-level fields changed → pure no-op:
+       `['status' => 'skipped', 'reason' => 'content_unchanged', ...]`
+     - if document-level metadata changed (e.g. title, source_ref, effective_date,
+       version_label, language, status, metadata) → update only the document row:
+       `['status' => 'ok', 'reason' => 'metadata_updated', ...]`
+   - If `text` is null, `content_hash` is not computed and idempotent skip is disabled.
 2. **If hash differs (or no hash exists):** begin transaction.
 3. **Delete the existing document.** CASCADE removes all its units → chunks → embeddings.
-4. **Insert the new document** with units, chunks, and embeddings.
-5. **Commit.** If any step fails → rollback. The old document remains intact.
+4. **Insert the new document, units, and chunks.**
+5. **Commit.** If any step fails in this phase → rollback. The old document remains intact.
+6. **Embed chunks after commit** (outside the transaction), in batches.
+   - if embedding succeeds → return `status = 'ok'`
+   - if embedding fails after one or more batches → return `status = 'partial'`
+     with an error message; the document already exists with chunks and is usable
+     for lexical search
 
-The entire replace operation (delete old + insert new + all descendants) happens
-inside a single transaction. There is no visible gap where the document disappears.
-This is the only ingest strategy in V1.
+The delete + insert of document/units/chunks is atomic, so there is no visible gap
+where the document disappears during re-ingest. Embeddings are intentionally written
+after commit because external embedding calls can take seconds to minutes and should
+not hold a database transaction open.
+
+**document_id stability:** `document_id` is an internal surrogate key. It changes on
+every re-ingest (delete + reinsert). External systems and application UI must use
+`slug` (scoped to knowledge base) as the stable document identity. Do not persist or
+reference `document_id` outside the current request/process.
 
 ### Future: supersede strategy (V2)
 
@@ -1112,23 +1130,47 @@ final class Retriever extends BaseService {
  * Parsing raw source formats (HTML, PDF, plain text) into unit structures
  * is an app-side concern — the package is format-agnostic.
  *
+ * The `text` field is the canonical source input used to compute content_hash
+ * for idempotent re-import. When `text` is provided and the hash matches an
+ * existing document with the same slug, structural re-ingest is skipped.
+ * When `text` is null, content_hash is not computed and idempotent skip is
+ * disabled — every call produces a full re-ingest.
+ *
  * Flow:
  *   1. Validate input
- *   2. Check content_hash for idempotent skip (match = no-op)
- *   3. Begin transaction
- *   4. Delete existing document if re-ingesting (same slug, hash mismatch)
- *   5. Insert document row
- *   6. Insert unit rows with hierarchy and path generation
- *   7. Chunk each unit via Chunker util (policy from cfg)
- *   8. Insert chunk rows
- *   9. Embed chunks via VectorEmbedder (when vector search is active in cfg)
- *  10. Insert embedding rows
- *  11. Commit (rollback on any failure — old document remains intact)
+ *   2. Resolve cfg (chunker, vector enabled, embedding profile, batch size)
+ *   3. Compute content_hash from `text` when provided
+ *   4. Check content_hash for idempotent skip / metadata-only update
+ *   5. Begin transaction
+ *   6. Delete existing document if re-ingesting (same slug, hash mismatch)
+ *   7. Insert document row
+ *   8. Insert unit rows with hierarchy and path generation
+ *   9. Chunk each unit via Chunker util (policy from cfg)
+ *  10. Insert chunk rows
+ *  11. Commit document/units/chunks transaction
+ *  12. Embed chunks via VectorEmbedder in batches (when vector search is active)
+ *  13. Insert embedding rows batch-by-batch outside the transaction
+ *  14. Return ok / partial / skipped result
  *
  * @param  array  $input  ['knowledge_base_id', 'slug', 'title', 'source_type',
- *                         'text', 'units' => [...], 'metadata' => [...], ...]
- * @return array  ['document_id', 'units_count', 'chunks_count', 'embeddings_count',
- *                 'skipped' => bool, 'reason' => ?string]
+ *                         'text' => ?string, 'units' => [...], 'metadata' => [...], ...]
+ * @return array  [
+ *                   'document_id'      => int,
+ *                   'units_count'      => int,
+ *                   'chunks_count'     => int,
+ *                   'embeddings_count' => int,
+ *                   'embedding_model'  => ?string,
+ *                   'status'           => 'ok'|'partial'|'skipped',
+ *                   'reason'           => ?string, // null | 'content_unchanged' | 'metadata_updated'
+ *                   'error'            => ?string, // null unless status = 'partial'
+ *                 ]
+ *
+ * status semantics:
+ *   - 'ok':      Full re-ingest completed, or only the document row was updated
+ *                because content was unchanged but metadata differed.
+ *   - 'partial': Document/units/chunks committed, embedding failed. The document
+ *                exists and is usable for lexical search.
+ *   - 'skipped': Pure no-op. Content hash matched and no document-level fields changed.
  */
 ```
 
@@ -1205,31 +1247,34 @@ final class Registry {
     public const MAP_CLI = self::MAP_HTTP;
 
     public const CFG_HTTP = [
-        'knowledgebase' => [
-            'embedding_profile' => 'openai-text-embedding-3-small',
-            'chat_profile'      => 'openai-gpt-4o-mini',
-            'chunker' => [
-                'strategy'       => 'fixed_size',
-                'max_tokens'     => 512,
-                'overlap_tokens' => 50,
-            ],
-            'retrieval' => [
-                'lexical'              => true,
-                'vector'               => true,
-                'rerank'               => false,
-                'synonym_expansion'    => true,
-                'top_k'                => 5,
-                'candidate_multiplier' => 3,
-                'min_similarity'       => 0.70,
-                'min_score'            => 0.0,
-                'min_chunks'           => 1,
-                'allow_low_context'    => false,
-                'fusion' => [
-                    'method' => 'rrf',
-                    'rrf_k'  => 60,
-                ],
-                'rerank_profile' => null,
-            ],
+		'knowledgebase' => [
+			'embedding_profile' => 'openai-text-embedding-3-small',
+			'chat_profile'      => 'openai-gpt-4o-mini',
+			'chunker' => [
+				'strategy'       => 'fixed_size',
+				'max_tokens'     => 512,
+				'overlap_tokens' => 50,
+			],
+			'ingest' => [
+				'embedding_batch_size' => 100,
+			],
+			'retrieval' => [
+				'lexical'              => true,
+				'vector'               => true,
+				'rerank'               => false,
+				'synonym_expansion'    => true,
+				'top_k'                => 5,
+				'candidate_multiplier' => 3,
+				'min_similarity'       => 0.70,
+				'min_score'            => 0.0,
+				'min_chunks'           => 1,
+				'allow_low_context'    => false,
+				'fusion' => [
+					'method' => 'rrf',
+					'rrf_k'  => 60,
+				],
+				'rerank_profile' => null,
+			],
             'prompt' => [
                 'system_template'      => null,
                 'max_context_tokens'   => 4000,
@@ -1386,6 +1431,9 @@ source-format-agnostic.
 | 36 | Synonym expansion affects lexical only | The vector leg always uses the original user question embedding unchanged. |
 | 37 | Relational synonym storage replaces JSON arrays | `know_synonym_groups` + `know_synonym_terms` provide row-level integrity, overlap enforcement via unique indexes, better lookup indexes, and cleaner repository semantics. |
 | 38 | Canonical synonym term must also exist as a term row | `canonical_term` lives on the group row for administration, but must also be persisted in `know_synonym_terms` so all lookupable surface forms remain row-based and bidirectional. Repository enforces this transactionally. |
+| 39 | document_id is disposable | Replace-by-slug creates a new row with a new ID on re-ingest. `slug` (scoped to knowledge base) is the stable external identity. Do not build persistent references to `document_id`. |
+| 40 | Ingest splits DB write and embedding phases | Document/units/chunks are written transactionally first; embeddings are generated and persisted after commit. This avoids holding DB transactions open across external embedding API calls while still preserving a valid lexical-only state on embedding failure. |
+
 
 
 ---
@@ -1407,7 +1455,7 @@ source-format-agnostic.
 | 10 | Default rerank prompt template | Pending      | Package-shipped rerank scoring prompt. |
 | 11 | Exception hierarchy            | Pending      | Base + specific exceptions with clear throw sites. |
 | 12 | Token estimation strategy      | To decide    | char/4 heuristic vs. tiktoken vs. cl100k. Tradeoff: accuracy vs. dependencies. |
-| 13 | Ingest transaction boundaries  | Decided      | Single transaction for full replace-by-slug (§10). |
+| 13 | Ingest transaction boundaries  | Decided      | Document/units/chunks are written in one transaction; embeddings are generated and inserted after commit (§10). |
 | 14 | KB scoping in retrieval        | To verify    | Consistent knowledge_base_ids filtering through all layers. |
 | 15 | FULLTEXT language config       | To evaluate  | MySQL defaults may not be optimal for Danish. ft_min_word_len, stopwords. |
 | 16 | Boolean query builder          | To implement | Retriever must build safe bounded boolean FULLTEXT queries from synonym expansion results, including exact-phrase handling for multi-word synonyms and escaping/stripping of reserved boolean characters. |
@@ -1415,3 +1463,4 @@ source-format-agnostic.
 | 18 | Synonym import replace semantics | Decided | `importBatch()` is per-group upsert by `canonical_term` within the target knowledge base. Matching canonical term = update that group transactionally (replace canonical term row value + replace all term rows for that group). No matching canonical term = insert new group. Import does NOT perform full replacement of all synonym groups in the knowledge base, and groups not mentioned in the batch remain untouched. Batch validation is fail-fast on overlap or invalid normalization. |
 | 19 | Synonym transaction scope | Decided | Group writes are transactional; batch import fail-fast behavior must be explicit. |
 | 20 | Synonym overlap DB enforcement | Decided | `UNIQUE(knowledge_base_id, term)` on `know_synonym_terms` enforces one group per normalized surface form per knowledge base. |
+| 21 | Re-embed workflow / command    | Pending      | Add a dedicated command/operation to embed chunks that are missing embeddings for a given model/knowledge base after partial ingest or later model rollout. |
