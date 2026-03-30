@@ -145,7 +145,7 @@ citomni/knowledgebase/
       UnitRepository.php              – know_units CRUD + hierarchy + path management
       ChunkRepository.php             – know_chunks CRUD + lexical search
       EmbeddingRepository.php         – know_embeddings CRUD + vector search + completeness
-      SynonymRepository.php           – know_synonym_groups + know_synonym_terms CRUD + bidirectional expansion
+      SynonymRepository.php           – know_synonym_groups + know_synonym_terms CRUD + synonym lookup/load
       QueryLogRepository.php          – know_query_log write + prune (optional table)
     Util/
       Chunker.php                     – Stateless text → chunks transformer
@@ -221,13 +221,21 @@ SHA-256 hex. `CHAR(64) CHARACTER SET ascii COLLATE ascii_bin`.
 Enables idempotent re-import: matching hash = skip, mismatch = re-ingest.
 NULL is valid for manually created documents.
 
-**Sibling ordering (know_units):**
-`UNIQUE(document_id, parent_id, sort_order)` prevents duplicate positions among
-non-root siblings. MySQL treats NULL parent_id values as distinct in UNIQUE
-constraints, so top-level units are not covered by the DB constraint.
-Repository enforces root-level ordering with fail-fast behavior:
-duplicate root sort_order → `IngestException`. No auto-resequencing —
-if duplicates occur, it is a bug in the parser / ingest caller.
+Sibling ordering (know_units):
+Sibling ordering is enforced atomically at the database level for both root-level
+and non-root units.
+
+`know_units` defines a generated column:
+`parent_id_for_order = COALESCE(parent_id, 0)`
+
+and a unique constraint on:
+`UNIQUE(document_id, parent_id_for_order, sort_order)`
+
+This subjects root-level and non-root sibling positions to the same uniqueness
+rule and avoids race conditions that would occur with repository-side prechecks
+alone.
+
+No auto-resequencing — if duplicates occur, it is a bug in the parser / ingest caller.
 
 **Synonyms (`know_synonym_groups` + `know_synonym_terms`):**
 Domain-specific synonym groups are scoped per knowledge base and stored relationally.
@@ -300,7 +308,9 @@ Query
 Validate that at least one search leg is active.
 
 **2. Synonym expansion** (when active and lexical search is active) —
-`SynonymRepository::expand($knowledgeBaseIds, $queryText)`. Expansion is performed against synonym groups and term rows loaded for the targeted knowledge bases and assembled into in-memory lookup maps in PHP against the normalized query text.
+Retriever loads synonym groups and term rows for the targeted knowledge bases via
+SynonymRepository and performs the query-time expansion in PHP against the normalized
+query text.
 
 Matching rules:
 - single-word synonym entries match normalized query tokens
@@ -683,9 +693,9 @@ Term rows:
 ]
 ```
 
-Lookup is bidirectional. When a user searches for `indskud`, SynonymRepository
-resolves the matching term row, loads its group, and returns all normalized terms
-in that group.
+Lookup is bidirectional. When a user searches for `indskud`, Retriever can resolve
+the matching term through synonym data loaded from SynonymRepository and expand to
+all normalized terms in the same group.
 
 ### Normalization rules
 
@@ -712,18 +722,21 @@ also be present among the persisted term rows.
 
 Synonym expansion is a **query-time transformation** owned by Retriever:
 
-1. Retriever tokenizes the query text.
-2. For each token, SynonymRepository checks if it belongs to a synonym group
-   in any of the targeted knowledge bases.
-3. If matches are found, the token is replaced by a group of alternatives.
-4. Retriever builds the expanded query and switches the FULLTEXT mode:
+1. Retriever loads synonym groups and term rows for the targeted knowledge bases
+   via SynonymRepository.
+2. Retriever tokenizes and normalizes the query text.
+3. Retriever checks whether normalized tokens or exact normalized phrases belong
+   to any loaded synonym group.
+4. If matches are found, Retriever replaces the matched term/phrase with a group
+   of alternatives.
+5. Retriever builds the expanded query and switches the FULLTEXT mode:
    - **No expansion occurred** → natural language mode (standard scoring).
    - **Expansion occurred** → boolean mode with grouped alternatives:
      `+(depositum indskud) +(opsige ophæve "bringe til ophør")`
-5. The expanded query and mode are passed to `ChunkRepository::findByLexical()`.
+6. The expanded query and mode are passed to `ChunkRepository::findByLexical()`.
 
-This keeps the query transformation in Retriever and the FULLTEXT execution in
-ChunkRepository — clean separation of concerns.
+This keeps synonym data access in SynonymRepository, query transformation in
+Retriever, and FULLTEXT execution in ChunkRepository — clean separation of concerns.
 
 ### Lookup execution model
 
@@ -733,7 +746,7 @@ lookups during retrieval.
 Flow:
 1. Retriever resolves the targeted knowledge base(s).
 2. SynonymRepository loads synonym groups and synonym term rows for those knowledge bases.
-3. Retriever (or SynonymRepository::expand()) builds in-memory lookup maps for:
+3. Retriever builds in-memory lookup maps for:
    - single-word terms
    - exact multi-word phrases
 4. Query-time expansion runs against that in-memory map.
@@ -957,8 +970,8 @@ final class ScoreFusion {
 ### 14.5 Service — Retriever
 
 Registered in service map as `retriever`. Owns the full hybrid retrieval pipeline
-including synonym expansion. Reads cfg, calls Repositories for synonym expansion,
-lexical/vector hits, calls Utils for score fusion, calls HelloAi for rerank
+including synonym expansion. Reads cfg, loads synonym data via Repositories,
+executes lexical/vector retrieval, calls Utils for score fusion, calls HelloAi for rerank
 (with graceful fallback on failure).
 
 ```php
@@ -1002,7 +1015,7 @@ final class Retriever extends BaseService {
 - `delete(int $id): int` (cascades to units → chunks → embeddings)
 
 **UnitRepository** — `know_units` CRUD + hierarchy:
-- `insert(array $data): int` — validates parent belongs to same document, generates path
+- `insert(array $data): int` — validates parent belongs to the same document, generates path
 - `findById(int $id): ?array`
 - `findChildren(int $parentId): array` — ordered by sort_order
 - `findRootUnits(int $documentId): array` — top-level units, ordered
@@ -1011,8 +1024,9 @@ final class Retriever extends BaseService {
 - `update(int $id, array $data): int`
 - `delete(int $id): int` (cascades to child units → chunks → embeddings)
 - `deleteByDocument(int $documentId): int`
-- `buildPath(int $parentId, int $sortOrder): string` — generates zero-padded path segment
-- Root-level sibling ordering: fail-fast on duplicate sort_order (`IngestException`).
+- `buildPath(int $parentId, int $sortOrder): string` — generates a zero-padded materialized child path
+- Sibling ordering is enforced atomically by the database through
+  `UNIQUE(document_id, parent_id_for_order, sort_order)`.
   No auto-resequencing — duplicates are a bug in the parser / ingest caller.
 - Parent-document consistency: validated in insert/move, fail-fast with exception.
 
@@ -1045,22 +1059,17 @@ final class Retriever extends BaseService {
 - `countMissing(int $knowledgeBaseId, string $model): int`
   — Count of chunks that lack an embedding for this model.
 
-**SynonymRepository** — `know_synonym_groups` + `know_synonym_terms` CRUD + bidirectional expansion:
-- `expand(array $knowledgeBaseIds, string $queryText): array`
-  — Loads synonym groups and term rows for the targeted knowledge bases.
-  — Applies the package normalization rules to the query text.
-  — Single-word entries match normalized tokens.
-  — Multi-word entries match only as exact normalized phrases.
-  — Returns expansion result:
-    `['expanded_query' => string, 'mode' => 'natural'|'boolean',
-      'expansions' => ['indskud' => ['deposit', 'depositum', 'indskud'], ...]]`
-
+**SynonymRepository** — `know_synonym_groups` + `know_synonym_terms` CRUD + synonym lookup/load:
 - `findGroupById(int $groupId): ?array`
 - `findByTerm(int $knowledgeBaseId, string $term): ?array`
   — Returns the matching group with its full ordered term list.
 
 - `listByKnowledgeBase(int $knowledgeBaseId): array`
   — Returns all groups with nested ordered term lists.
+
+- `listByKnowledgeBases(array $knowledgeBaseIds): array`
+  — Returns all groups for the targeted knowledge bases with nested ordered term lists.
+  — Intended for Retriever's in-memory synonym expansion step.
 
 - `insertGroup(int $knowledgeBaseId, string $canonicalTerm, array $terms): int`
   — Normalizes all terms, de-duplicates them, and ensures the canonical term is included.
@@ -1350,7 +1359,7 @@ source-format-agnostic.
 | 9 | Rerank via HelloAi with graceful fallback | Opt-in quality pass. Failure falls back to pre-rerank ordering, never blocks results. |
 | 10 | Zero-padded materialized path | Deterministic lexical ordering, subtree queries without recursive CTEs. |
 | 11 | content_hash for idempotent re-import | SHA-256 hex, ascii_bin. Match = skip. Avoids unnecessary re-chunking. |
-| 12 | UNIQUE sibling ordering with fail-fast root enforcement | Prevents duplicate positions. Root-level: Repository fails fast, no auto-resequencing. |
+| 12 | Atomic sibling ordering via generated parent key | `parent_id_for_order = COALESCE(parent_id, 0)` plus `UNIQUE(document_id, parent_id_for_order, sort_order)` enforces root-level and non-root sibling ordering atomically. No auto-resequencing. |
 | 13 | Query log as optional table via explicit CLI command | No hidden runtime DDL. Repository no-ops when absent. |
 | 14 | No HTTP routes in package | Package ships Commands + Operations. HTTP routing is app-domain. |
 | 15 | Silent exclusion for incomplete embeddings | Chunks without embeddings participate in lexical only. Completeness is observability. |
@@ -1369,8 +1378,8 @@ source-format-agnostic.
 | 28 | Adaptive FULLTEXT mode | Natural language mode by default. Boolean mode when synonym expansion is active. Retriever decides mode; ChunkRepository accepts it as parameter. |
 | 29 | Query log canonical payload shape | Fixed field set documented in §12. Extensions go in metadata_json. |
 | 30 | Return shape naming: Retriever `meta`, Operation `retrieval_meta` | Prevents key collision, clear ownership per layer. |
-| 31 | Synonym expansion for domain-specific lexical quality | Admin-maintained synonym groups per knowledge base. Bidirectional lookup. Expansion is a query-time transformation in Retriever, not a storage-time concern. |
-| 32 | Synonym expansion executes primarily in PHP | Synonym groups are loaded per targeted knowledge base and matched in PHP for deterministic normalization and simpler lookup logic than repeated SQL/JSON membership queries. |
+| 31 | Synonym expansion for domain-specific lexical quality | Admin-maintained synonym groups per knowledge base. Bidirectional lookup. Synonym data is loaded via SynonymRepository, while query-time expansion is owned by Retriever. |
+| 32 | Synonym expansion executes primarily in PHP | Retriever loads synonym groups per targeted knowledge base and performs matching/expansion in PHP for deterministic normalization and simpler lookup logic than repeated SQL membership queries. |
 | 33 | Multi-word synonyms are exact-phrase matches only | Prevents overly broad lexical expansion. Partial token matches must not trigger multi-word synonym groups. |
 | 34 | Synonym overlap is invalid | A normalized surface form may belong to only one synonym group per knowledge base. Import/update fails fast on overlap. |
 | 35 | Synonym expansion is bounded | Expansion uses deterministic caps on group alternatives, expanded groups, and/or final boolean query size. Overflow truncates with warning instead of failing the whole query. |

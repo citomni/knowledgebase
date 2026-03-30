@@ -18,7 +18,7 @@ namespace CitOmni\KnowledgeBase\Repository;
 use CitOmni\Kernel\Repository\BaseRepository;
 
 /**
- * Persist and expand relational synonym groups.
+ * Persist and load relational synonym groups.
  *
  * Behavior:
  * - Owns all SQL for `know_synonym_groups` and `know_synonym_terms`.
@@ -26,131 +26,22 @@ use CitOmni\Kernel\Repository\BaseRepository;
  * - Enforces the canonical-term invariant transactionally:
  *   the group's canonical_term must also exist as a term row in the same group.
  * - Enforces no-overlap per knowledge base across normalized term rows.
- * - Expands lexical queries in PHP using loaded group + term rows.
+ * - Loads hydrated synonym groups and term rows for lookup/use by higher layers.
  *
  * Notes:
- * - Single-word entries match normalized query tokens.
- * - Multi-word entries match only as exact normalized phrases in the normalized query text.
- * - Expansion is bounded to avoid runaway boolean FULLTEXT queries.
- * - Repositories do not log warnings; truncation is deterministic and silent here.
+ * - Query-time synonym expansion belongs to Retriever, not to the Repository layer.
+ * - Repository methods return normalized persisted data only.
  *
  * Typical usage:
  *   $repo = new SynonymRepository($this->app);
  *   $groupId = $repo->insertGroup(1, 'depositum', ['depositum', 'indskud', 'deposit']);
  *   $group = $repo->findByTerm(1, 'indskud');
- *   $expanded = $repo->expand([1], 'må udlejer kræve indskud?');
+ *   $groups = $repo->listByKnowledgeBases([1]);
  *
  * @throws \InvalidArgumentException When input data is invalid.
  * @throws \RuntimeException When synonym integrity rules are violated.
  */
 final class SynonymRepository extends BaseRepository {
-
-	/**
-	 * Maximum alternatives emitted per matched synonym group.
-	 */
-	private const MAX_ALTERNATIVES_PER_GROUP = 12;
-
-	/**
-	 * Maximum matched groups emitted per query.
-	 */
-	private const MAX_EXPANDED_GROUPS_PER_QUERY = 12;
-
-	/**
-	 * Maximum boolean query length in characters.
-	 */
-	private const MAX_BOOLEAN_QUERY_LENGTH = 2000;
-
-
-
-	/**
-	 * Expand synonyms for the given knowledge bases and query text.
-	 *
-	 * Return shape:
-	 * - expanded_query: string
-	 * - mode: 'natural'|'boolean'
-	 * - expansions: map of matched term/phrase => expanded term list
-	 *
-	 * @param array $knowledgeBaseIds Knowledge base ids.
-	 * @param string $queryText Raw user query.
-	 * @return array Expansion result.
-	 * @throws \InvalidArgumentException When input is invalid.
-	 */
-	public function expand(array $knowledgeBaseIds, string $queryText): array {
-		$knowledgeBaseIds = $this->normalizeIdList($knowledgeBaseIds, 'knowledgeBaseIds');
-
-		if ($knowledgeBaseIds === []) {
-			throw new \InvalidArgumentException('knowledgeBaseIds must not be empty.');
-		}
-
-		$queryText = $this->normalizeRequiredQueryText($queryText);
-		$normalizedQuery = $this->normalizeSurfaceForm($queryText);
-		$groups = $this->listByKnowledgeBases($knowledgeBaseIds);
-
-		if ($groups === []) {
-			return [
-				'expanded_query' => $queryText,
-				'mode' => 'natural',
-				'expansions' => [],
-			];
-		}
-
-		$singleWordMap = [];
-		$multiWordMap = [];
-
-		foreach ($groups as $group) {
-			foreach ($group['terms'] as $term) {
-				if (\str_contains($term, ' ')) {
-					$multiWordMap[$term] = $group['terms'];
-					continue;
-				}
-
-				$singleWordMap[$term] = $group['terms'];
-			}
-		}
-
-		$matched = [];
-
-		// -- 1. Exact multi-word phrase matches --------------------------------
-		foreach ($multiWordMap as $phrase => $terms) {
-			if ($this->containsNormalizedPhrase($normalizedQuery, $phrase)) {
-				$matched[$phrase] = $this->limitAlternatives($terms);
-			}
-
-			if (\count($matched) >= self::MAX_EXPANDED_GROUPS_PER_QUERY) {
-				break;
-			}
-		}
-
-		// -- 2. Single-word token matches --------------------------------------
-		if (\count($matched) < self::MAX_EXPANDED_GROUPS_PER_QUERY) {
-			$tokens = $this->tokenizeNormalizedQuery($normalizedQuery);
-
-			foreach ($tokens as $token) {
-				if (isset($singleWordMap[$token]) && !isset($matched[$token])) {
-					$matched[$token] = $this->limitAlternatives($singleWordMap[$token]);
-				}
-
-				if (\count($matched) >= self::MAX_EXPANDED_GROUPS_PER_QUERY) {
-					break;
-				}
-			}
-		}
-
-		if ($matched === []) {
-			return [
-				'expanded_query' => $queryText,
-				'mode' => 'natural',
-				'expansions' => [],
-			];
-		}
-
-		return [
-			'expanded_query' => $this->buildBooleanQuery($normalizedQuery, $matched),
-			'mode' => 'boolean',
-			'expansions' => $matched,
-		];
-	}
-
 
 	/**
 	 * Find one synonym group by id.
@@ -451,8 +342,11 @@ final class SynonymRepository extends BaseRepository {
 	 *
 	 * @param array $knowledgeBaseIds Knowledge base ids.
 	 * @return array Hydrated groups with nested ordered term lists.
+	 * @throws \InvalidArgumentException When input is invalid.
 	 */
-	private function listByKnowledgeBases(array $knowledgeBaseIds): array {
+	public function listByKnowledgeBases(array $knowledgeBaseIds): array {
+		$knowledgeBaseIds = $this->normalizeIdList($knowledgeBaseIds, 'knowledgeBaseIds');
+
 		if ($knowledgeBaseIds === []) {
 			return [];
 		}
@@ -463,7 +357,7 @@ final class SynonymRepository extends BaseRepository {
 			'SELECT id, knowledge_base_id, canonical_term, created_at, updated_at
 			FROM know_synonym_groups
 			WHERE knowledge_base_id IN (' . $placeholders . ')
-			ORDER BY canonical_term ASC, id ASC',
+			ORDER BY knowledge_base_id ASC, canonical_term ASC, id ASC',
 			$knowledgeBaseIds
 		);
 
@@ -691,121 +585,6 @@ final class SynonymRepository extends BaseRepository {
 
 
 
-
-	// ----------------------------------------------------------------
-	// Expansion helpers
-	// ----------------------------------------------------------------
-
-	/**
-	 * Build a bounded boolean FULLTEXT query.
-	 *
-	 * @param string $normalizedQuery Normalized query text.
-	 * @param array $matchedExpansions Matched expansion groups.
-	 * @return string Boolean query string.
-	 */
-	private function buildBooleanQuery(string $normalizedQuery, array $matchedExpansions): string {
-		$segments = [];
-		$used = [];
-
-		foreach ($matchedExpansions as $matchedTerm => $alternatives) {
-			$parts = [];
-
-			foreach ($alternatives as $alternative) {
-				$sanitized = $this->sanitizeBooleanTerm($alternative);
-
-				if ($sanitized === '' || isset($used[$sanitized])) {
-					continue;
-				}
-
-				$parts[] = \str_contains($sanitized, ' ') ? '"' . $sanitized . '"' : $sanitized;
-				$used[$sanitized] = true;
-			}
-
-			if ($parts !== []) {
-				$segments[] = '+(' . \implode(' ', $parts) . ')';
-			}
-		}
-
-		if ($segments === []) {
-			return $normalizedQuery;
-		}
-
-		$booleanQuery = \implode(' ', $segments);
-
-		if (\strlen($booleanQuery) > self::MAX_BOOLEAN_QUERY_LENGTH) {
-			$booleanQuery = \substr($booleanQuery, 0, self::MAX_BOOLEAN_QUERY_LENGTH);
-			$booleanQuery = \rtrim($booleanQuery, " \t\n\r\0\x0B()\"");
-		}
-
-		return $booleanQuery !== '' ? $booleanQuery : $normalizedQuery;
-	}
-
-
-	/**
-	 * Limit alternatives deterministically.
-	 *
-	 * @param array $terms Normalized terms.
-	 * @return array Limited terms.
-	 */
-	private function limitAlternatives(array $terms): array {
-		if (\count($terms) <= self::MAX_ALTERNATIVES_PER_GROUP) {
-			return $terms;
-		}
-
-		return \array_slice($terms, 0, self::MAX_ALTERNATIVES_PER_GROUP);
-	}
-
-
-	/**
-	 * Determine whether a normalized phrase occurs exactly in a normalized query string.
-	 *
-	 * @param string $normalizedQuery Normalized query.
-	 * @param string $normalizedPhrase Normalized phrase.
-	 * @return bool True when the phrase occurs as a whole phrase boundary match.
-	 */
-	private function containsNormalizedPhrase(string $normalizedQuery, string $normalizedPhrase): bool {
-		$pattern = '/(?:^| )' . \preg_quote($normalizedPhrase, '/') . '(?:$| )/u';
-
-		return (bool)\preg_match($pattern, $normalizedQuery);
-	}
-
-
-	/**
-	 * Tokenize a normalized query string.
-	 *
-	 * @param string $normalizedQuery Normalized query.
-	 * @return array Tokens.
-	 */
-	private function tokenizeNormalizedQuery(string $normalizedQuery): array {
-		if ($normalizedQuery === '') {
-			return [];
-		}
-
-		return \explode(' ', $normalizedQuery);
-	}
-
-
-	/**
-	 * Sanitize a term for FULLTEXT boolean mode.
-	 *
-	 * Reserved boolean operators and control characters are stripped.
-	 *
-	 * @param string $term Normalized term.
-	 * @return string Sanitized term.
-	 */
-	private function sanitizeBooleanTerm(string $term): string {
-		$term = \preg_replace('/[+\-<>()~*@"%]/u', ' ', $term) ?? '';
-		$term = \preg_replace('/\s+/u', ' ', $term) ?? '';
-		return \trim($term);
-	}
-
-
-
-
-
-
-
-
 	// ----------------------------------------------------------------
 	// Scalar normalization helpers
 	// ----------------------------------------------------------------
@@ -849,24 +628,6 @@ final class SynonymRepository extends BaseRepository {
 		}
 
 		return \array_values(\array_unique($normalized));
-	}
-
-
-	/**
-	 * Normalize a required query text.
-	 *
-	 * @param string $queryText Raw query text.
-	 * @return string Trimmed query text.
-	 * @throws \InvalidArgumentException When the query is empty.
-	 */
-	private function normalizeRequiredQueryText(string $queryText): string {
-		$queryText = \trim($queryText);
-
-		if ($queryText === '') {
-			throw new \InvalidArgumentException('queryText must not be empty.');
-		}
-
-		return $queryText;
 	}
 
 
