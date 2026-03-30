@@ -1,0 +1,19 @@
+/.github               export-ignore
+/docs                  export-ignore
+/dev                   export-ignore
+/examples              export-ignore
+/vendor                export-ignore
+/.editorconfig         export-ignore
+/.gitattributes        export-ignore
+/.gitignore            export-ignore
+/phpunit.xml*          export-ignore
+/.idea                 export-ignore
+/.vscode               export-ignore
+/Makefile              export-ignore
+
+# IMPORTANT: keep these so create-project works
+# /stubs               (DO NOT export-ignore)
+# /scripts             (DO NOT export-ignore)
+
+# Optional — if you don't want to ship tests from the skeleton itself:
+# /tests               export-ignore

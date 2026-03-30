@@ -1,0 +1,283 @@
+# [YOUR PROVIDER NAME]
+
+Minimal, deterministic **CitOmni provider** (PHP 8.2+).  
+Contributes **config** and **services** via boot constants, with optional **routes**, **controllers**, **commands**, and **models**.  
+More requests per watt.
+
+> **Scope:** Mode-neutral provider package.  
+> Add `citomni/http` if you expose HTTP routes; add `citomni/cli` if you wire commands into a runner.
+
+---
+
+## Requirements
+
+- PHP **8.2+**
+- Composer
+- `citomni/kernel` (required)
+- Optional: `citomni/http` (for routes/controllers), `citomni/cli` (for commands)
+
+---
+
+## Install (as a library, in an app)
+
+```bash
+composer require [your-vendor]/[your-provider]
+````
+
+Enable the provider in your app:
+
+```php
+<?php
+// app/config/providers.php
+return [
+	\[YourVendor\YourProvider\Boot\Services::class],
+];
+```
+
+(Optional) override defaults:
+
+```php
+<?php
+// app/config/citomni_http_cfg.php
+return [
+	'[your_provider_key]' => [
+		'enabled'  => true,
+		// your provider-level config here...
+	],
+];
+```
+
+---
+
+## What this provider ships
+
+* **Boot constants**: `MAP_HTTP`, `CFG_HTTP`, `MAP_CLI`, `CFG_CLI`
+* **Service(s)**: extend `\CitOmni\Kernel\Service\BaseService`
+* **(Optional) Controller(s)**: extend `\CitOmni\Kernel\Controller\BaseController`
+* **(Optional) Command(s)**: extend `\CitOmni\Kernel\Command\BaseCommand`
+* **(Optional) Model(s)**: extend `\CitOmni\Kernel\Model\BaseModel`
+* **Lifecycle hook**: `protected function init(): void` (keep it lightweight)
+
+**Constructor contract for services/commands/models:**
+
+```php
+__construct(\CitOmni\Kernel\App $app, array $options = [])
+```
+
+---
+
+## Deterministic configuration (last wins)
+
+Per mode (HTTP|CLI), config merges in this order:
+
+1. Vendor baseline (by mode)
+2. Providers (in `/config/providers.php`, order matters)
+3. App base (`/config/citomni_{http|cli}_cfg.php`)
+4. Env overlay (`/config/citomni_{http|cli}_cfg.{dev|stage|prod}.php`)
+
+Config is exposed as a **deep, read-only** wrapper; large lists (e.g., `routes`) remain raw arrays:
+
+```php
+$baseUrl = $this->app->cfg->http->base_url;
+$routes  = $this->app->cfg->routes; // raw array by design
+```
+
+---
+
+## Provider boot constants (template)
+
+Inside `src/Boot/Services.php`:
+
+```php
+<?php
+declare(strict_types=1);
+
+namespace YourVendor\YourProvider\Boot;
+
+final class Services {
+	public const MAP_HTTP = [
+		// Example: service with options
+		'greeting' => [
+			'class'   => \YourVendor\YourProvider\Service\GreetingService::class,
+			'options' => ['prefix' => 'Hello'],
+		],
+	];
+
+	public const CFG_HTTP = [
+		'[your_provider_key]' => [
+			'enabled'  => true,
+			'greeting' => ['prefix' => 'Hello'],
+		],
+		// Optional routes (HTTP only):
+		'routes' => \YourVendor\YourProvider\Boot\Routes::MAP,
+	];
+
+	public const MAP_CLI = [
+		// Example: command service id -> FQCN
+		'hello' => \YourVendor\YourProvider\Command\HelloCommand::class,
+	];
+
+	public const CFG_CLI = [
+		'[your_provider_key]' => ['enabled' => true],
+	];
+}
+```
+
+---
+
+## Example service
+
+```php
+<?php
+declare(strict_types=1);
+
+namespace YourVendor\YourProvider\Service;
+
+use CitOmni\Kernel\Service\BaseService;
+
+final class GreetingService extends BaseService {
+	protected function init(): void {
+		// Lightweight one-time setup only
+	}
+
+	public function make(string $name): string {
+		$cfgPrefix = $this->app->cfg->toArray()['[your_provider_key]']['greeting']['prefix'] ?? null;
+		$prefix = \is_string($cfgPrefix) && $cfgPrefix !== '' ? $cfgPrefix : ($this->options['prefix'] ?? 'Hello');
+		return $prefix . ', ' . $name;
+	}
+}
+```
+
+---
+
+## (Optional) Example route & controller
+
+```php
+<?php
+declare(strict_types=1);
+
+namespace YourVendor\YourProvider\Boot;
+
+final class Routes {
+	public const MAP = [
+		'/hello' => [
+			'controller' => \YourVendor\YourProvider\Controller\HelloController::class,
+			'methods'    => ['GET'],
+			'options'    => ['who' => 'world'],
+		],
+	];
+}
+```
+
+```php
+<?php
+declare(strict_types=1);
+
+namespace YourVendor\YourProvider\Controller;
+
+use CitOmni\Kernel\Controller\BaseController;
+
+final class HelloController extends BaseController {
+	protected function init(): void {
+		// Read/validate $this->routeConfig if needed
+	}
+
+	public function index(): void {
+		$who = (string)($this->routeConfig['options']['who'] ?? 'world');
+		$msg = $this->app->greeting->make($who);
+
+		echo "<!doctype html><meta charset=\"utf-8\"><title>Hello</title>";
+		echo "<p>{$msg}</p>";
+	}
+}
+```
+
+---
+
+## (Optional) Example command
+
+Assumes a minimal `\CitOmni\Kernel\Command\BaseCommand` is available.
+
+```php
+<?php
+declare(strict_types=1);
+
+namespace YourVendor\YourProvider\Command;
+
+use CitOmni\Kernel\Command\BaseCommand;
+
+final class HelloCommand extends BaseCommand {
+	protected function init(): void {
+		// Validate/normalize $this->options if needed
+	}
+
+	public function run(array $argv = []): int {
+		$name = $argv[0] ?? ($this->options['default_name'] ?? 'world');
+		$line = $this->app->greeting->make($name);
+		\fwrite(\STDOUT, $line . \PHP_EOL);
+		return 0;
+	}
+}
+```
+
+---
+
+## Performance & caching (production)
+
+* Prefer **compiled caches**:
+
+  * `<appRoot>/var/cache/cfg.{http|cli}.php`
+  * `<appRoot>/var/cache/services.{http|cli}.php`
+* Generate atomically during deploy:
+
+  ```php
+  $app = new \CitOmni\Kernel\App(__DIR__ . '/../config', \CitOmni\Kernel\Mode::HTTP);
+  $app->warmCache(true, true);
+  ```
+* Enable OPcache; consider `validate_timestamps=0` (invalidate on deploy).
+
+---
+
+## SPDX header template (use in every PHP file)
+
+```php
+<?php
+declare(strict_types=1);
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) [START_YEAR]-[CURRENT_YEAR] [YOUR NAME]
+ *
+ * [PACKAGE TITLE] - [One-line description]
+ * Source:  https://github.com/[your-vendor]/[your-repo]
+ * License: See the LICENSE file for full terms.
+ */
+```
+
+Fill in:
+
+* `[START_YEAR]-[CURRENT_YEAR]` (use a single year if same)
+* `[YOUR NAME]` (person/org)
+* `[PACKAGE TITLE]` and repo URL
+
+---
+
+## Coding & documentation conventions
+
+* PHP **8.2+**, PSR-1/PSR-4
+* **PascalCase** classes, **camelCase** methods/vars, **UPPER_SNAKE_CASE** constants
+* **K&R braces**, **tabs** for indentation
+* PHPDoc & inline comments in **English**
+* Fail fast; do not catch unless necessary (global handler logs)
+
+---
+
+## License
+
+Released under **GNU GPL v3.0 or later**.
+See `LICENSE` for details.
+
+---
+
+## Trademarks
+
+"CitOmni" and the CitOmni logo are trademarks of Lars Grove Mortensen; factual references are allowed, but do not modify the marks, create confusingly similar logos, or imply endorsement.

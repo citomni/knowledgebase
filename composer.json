@@ -1,0 +1,80 @@
+{
+	"name": "citomni/provider-skeleton",
+	"description": "Template provider for CitOmni apps: boot constants (MAP/CFG), example route/controller, service, command, and model. Ultra-lean, deterministic, PHP 8.2+.",
+	"type": "project",
+	"extra": {
+		"citomni-skeleton": true
+	},
+	"license": "MIT",
+	"homepage": "https://github.com/citomni/provider-skeleton",
+	"keywords": [
+		"citomni", "provider", "skeleton", "php", "psr-4",
+		"low-overhead", "deterministic", "php8", "green-by-design",
+		"routes", "controller", "service", "command", "framework"
+	],
+	"require": {
+		"php": "^8.2",
+		"citomni/kernel": "^1.0"
+	},
+	"autoload": {
+		"psr-4": {
+			"CitOmni\\ProviderSkeleton\\": "src/"
+		}
+	},
+	"autoload-dev": {
+		"psr-4": {
+			"CitOmni\\ProviderSkeleton\\Tests\\": "tests/"
+		}
+	},
+	"suggest": {
+		"citomni/http": "HTTP runtime (Router, Request, Response, View) if you use the provided routes/controllers.",
+		"citomni/cli": "CLI runtime if you wire commands into a command runner.",
+		"ext-opcache": "Better performance in production."
+	},
+	"support": {
+		"issues": "https://github.com/citomni/provider-skeleton/issues",
+		"source": "https://github.com/citomni/provider-skeleton",
+		"docs": "https://github.com/citomni/provider-skeleton#readme"
+	},
+	"authors": [
+		{
+			"name": "Lars Grove Mortensen",
+			"homepage": "https://www.citomni.com"
+		}
+	],
+	"config": {
+		"sort-packages": true,
+		"optimize-autoloader": true,
+		"apcu-autoloader": true
+	},
+	"minimum-stability": "stable",
+	"prefer-stable": true,
+	"archive": {
+		"exclude": [
+			"/.github",
+			"/docs",
+			"/tests",
+			"/dev",
+			"/examples",
+			"/vendor",
+			"/.editorconfig",
+			"/.gitattributes",
+			"/.gitignore",
+			"/phpunit.xml*",
+			"/.idea",
+			"/.vscode",
+			"/Makefile"
+		]
+	},
+	"scripts": {
+		"post-create-project-cmd": [
+			"php scripts/setup.php"
+		],
+		"scaffold:provider": [
+			"php -r \"copy('stubs/provider.composer.json.stub','composer.json'); echo 'composer.json updated from stub.\\n';\"",
+			"php -r \"if (file_exists('stubs/README.provider.stub')) { copy('stubs/README.provider.stub','README.md'); echo 'README.md updated from stub.\\n'; }\"",
+			"composer validate || true",
+			"composer dump-autoload -o || true"
+		]
+	}
+}
