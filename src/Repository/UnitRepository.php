@@ -24,8 +24,8 @@ use CitOmni\Kernel\Repository\BaseRepository;
  * - Owns all SQL for the `know_units` table.
  * - Validates parent/document consistency on insert and move.
  * - Generates and maintains zero-padded materialized paths.
- * - Enforces root-level sibling ordering fail-fast because MySQL UNIQUE does not
- *   cover `(document_id, NULL, sort_order)` as intended.
+ * - Relies on the database unique constraint for atomic sibling ordering at both
+ *   root level and non-root level.
  *
  * Notes:
  * - Updating `parent_id` and/or `sort_order` is treated as a structural move.
@@ -77,13 +77,12 @@ final class UnitRepository extends BaseRepository {
 			$sortOrder = $payload['sort_order'];
 
 			if ($parentId === null) {
-				$this->assertRootSortOrderAvailable($documentId, $sortOrder);
 				$payload['depth'] = 0;
 				$payload['path'] = $this->buildRootPath($sortOrder);
 			} else {
 				$parent = $this->getParentRowForDocument($parentId, $documentId);
 				$payload['depth'] = ((int)$parent['depth']) + 1;
-				$payload['path'] = $this->buildPath($parentId, $sortOrder);
+				$payload['path'] = $this->buildChildPath((string)$parent['path'], $sortOrder);
 			}
 
 			return $this->app->db->insert('know_units', $payload);
@@ -238,24 +237,19 @@ final class UnitRepository extends BaseRepository {
 
 			if ($needsStructuralUpdate) {
 				if ($newParentId === null) {
-					$this->assertRootSortOrderAvailable($documentId, $newSortOrder, $id);
 					$newDepth = 0;
 					$newPath = $this->buildRootPath($newSortOrder);
 				} else {
 					if ($newParentId === $id) {
 						throw new \RuntimeException('A unit cannot be its own parent.');
 					}
-
 					$parent = $this->getParentRowForDocument($newParentId, $documentId);
-
 					if ($this->isPathWithinSubtree((string)$parent['path'], $oldPath)) {
 						throw new \RuntimeException('A unit cannot be moved under its own descendant.');
 					}
-
 					$newDepth = ((int)$parent['depth']) + 1;
-					$newPath = $this->buildPath($newParentId, $newSortOrder);
+					$newPath = $this->buildChildPath((string)$parent['path'], $newSortOrder);
 				}
-
 				$payload['depth'] = $newDepth;
 				$payload['path'] = $newPath;
 			}
@@ -318,8 +312,31 @@ final class UnitRepository extends BaseRepository {
 	 */
 	public function buildPath(int $parentId, int $sortOrder): string {
 		$parent = $this->getUnitRowOrFail($parentId);
+		$sortOrder = $this->normalizeSortOrder($sortOrder);
 
-		return (string)$parent['path'] . '.' . $this->formatPathSegment($sortOrder);
+		return $this->buildChildPath((string)$parent['path'], $sortOrder);
+	}
+
+
+	/**
+	 * Build a child materialized path from a known parent path.
+	 *
+	 * Notes:
+	 * - This is an internal helper used when the caller already has the parent row.
+	 * - It avoids an extra database read compared to buildPath().
+	 * - The caller is responsible for passing a validated sort order.
+	 *
+	 * Example:
+	 * - parent path: 001.003
+	 * - sort order: 2
+	 * - result: 001.003.002
+	 *
+	 * @param string $parentPath Parent materialized path.
+	 * @param int $sortOrder Child sort order.
+	 * @return string Materialized child path.
+	 */
+	private function buildChildPath(string $parentPath, int $sortOrder): string {
+		return $parentPath . '.' . $this->formatPathSegment($sortOrder);
 	}
 
 
@@ -564,38 +581,6 @@ final class UnitRepository extends BaseRepository {
 		}
 
 		return $parent;
-	}
-
-
-	/**
-	 * Assert that a root-level sort order is available within a document.
-	 *
-	 * @param int $documentId Document id.
-	 * @param int $sortOrder Root sort order.
-	 * @param ?int $excludeId Optional current unit id to exclude on update.
-	 * @return void
-	 * @throws \RuntimeException When the sort order is already used.
-	 */
-	private function assertRootSortOrderAvailable(int $documentId, int $sortOrder, ?int $excludeId = null): void {
-		$sql = 'SELECT id
-			FROM know_units
-			WHERE document_id = ?
-				AND parent_id IS NULL
-				AND sort_order = ?';
-		$params = [$documentId, $sortOrder];
-
-		if ($excludeId !== null) {
-			$sql .= ' AND id <> ?';
-			$params[] = $excludeId;
-		}
-
-		$sql .= ' LIMIT 1';
-
-		$row = $this->app->db->fetchRow($sql, $params);
-
-		if ($row !== null) {
-			throw new \RuntimeException('Duplicate root-level sort_order detected for the document.');
-		}
 	}
 
 
