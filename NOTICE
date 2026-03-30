@@ -1,15 +1,16 @@
-CitOmni Framework
-Copyright (c) 2012-present Lars Grove Mortensen
+CitOmni Knowledgebase - a provider (plugin) for the CitOmni Framework
+Copyright (c) 2026-present Lars Grove Mortensen
 Licensed under the MIT License (see LICENSE).
 
 ------------------------------------------------------------
-Trademark Notice
+Third-Party & Trademarks
 ------------------------------------------------------------
-"CitOmni" and the CitOmni logo are trademarks of Lars Grove Mortensen.
-Trademark rights are separate from copyright.
+This package targets the CitOmni Framework.
 
-You may refer to "CitOmni" to describe compatibility, comparison, or
-education (including commercial contexts) provided that:
+"CitOmni" and the CitOmni logo are trademarks of Lars Grove Mortensen.
+Trademark rights are separate from copyright. You may refer to "CitOmni"
+to describe compatibility, comparison, or education (including commercial
+contexts) provided that:
  - the use is purely descriptive (nominative fair use) and does not suggest
    sponsorship, endorsement, or affiliation,
  - you do not modify the CitOmni logo or combine it with your own marks,
@@ -25,3 +26,9 @@ services, or merchandise requires prior written permission.
 
 This notice supplements the MIT License and governs trademark usage only.
 The open-source code itself remains licensed under MIT.
+
+Official CitOmni domains are: citomni.com and citomni.dk.
+Any other domain usage is not official unless explicitly approved in writing.
+
+For questions about CitOmni trademarks, contact: legal@citomni.com
+For questions about this software's license, contact: Lars Grove Mortensen

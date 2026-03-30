@@ -1,14 +1,11 @@
 {
-	"name": "citomni/provider-skeleton",
-	"description": "Template provider for CitOmni apps: boot constants (MAP/CFG), example route/controller, service, command, and model. Ultra-lean, deterministic, PHP 8.2+.",
-	"type": "project",
-	"extra": {
-		"citomni-skeleton": true
-	},
+	"name": "citomni/knowledgebase",
+	"description": "A CitOmni provider based on citomni/provider-skeleton",
+	"type": "library",
 	"license": "MIT",
-	"homepage": "https://github.com/citomni/provider-skeleton",
+	"homepage": "https://github.com/citomni/knowledgebase",
 	"keywords": [
-		"citomni", "provider", "skeleton", "php", "psr-4",
+		"citomni", "provider", "php", "psr-4",
 		"low-overhead", "deterministic", "php8", "green-by-design",
 		"routes", "controller", "service", "command", "framework"
 	],
@@ -18,23 +15,22 @@
 	},
 	"autoload": {
 		"psr-4": {
-			"CitOmni\\ProviderSkeleton\\": "src/"
+			"CitOmni\\Knowledgebase\\": "src/"
 		}
 	},
 	"autoload-dev": {
 		"psr-4": {
-			"CitOmni\\ProviderSkeleton\\Tests\\": "tests/"
+			"CitOmni\\Knowledgebase\\Tests\\": "tests/"
 		}
 	},
 	"suggest": {
-		"citomni/http": "HTTP runtime (Router, Request, Response, View) if you use the provided routes/controllers.",
-		"citomni/cli": "CLI runtime if you wire commands into a command runner.",
-		"ext-opcache": "Better performance in production."
+		"citomni/http": "HTTP runtime if you expose routes/controllers.",
+		"citomni/cli": "CLI runtime if you expose commands.",
+		"ext-opcache": "Better performance in production.",
+		"ext-apcu": "Speeds up Composer's class loading in production."
 	},
 	"support": {
-		"issues": "https://github.com/citomni/provider-skeleton/issues",
-		"source": "https://github.com/citomni/provider-skeleton",
-		"docs": "https://github.com/citomni/provider-skeleton#readme"
+		"source": "https://github.com/citomni/knowledgebase"
 	},
 	"authors": [
 		{
@@ -53,10 +49,8 @@
 		"exclude": [
 			"/.github",
 			"/docs",
-			"/tests",
 			"/dev",
 			"/examples",
-			"/vendor",
 			"/.editorconfig",
 			"/.gitattributes",
 			"/.gitignore",
@@ -64,17 +58,6 @@
 			"/.idea",
 			"/.vscode",
 			"/Makefile"
-		]
-	},
-	"scripts": {
-		"post-create-project-cmd": [
-			"php scripts/setup.php"
-		],
-		"scaffold:provider": [
-			"php -r \"copy('stubs/provider.composer.json.stub','composer.json'); echo 'composer.json updated from stub.\\n';\"",
-			"php -r \"if (file_exists('stubs/README.provider.stub')) { copy('stubs/README.provider.stub','README.md'); echo 'README.md updated from stub.\\n'; }\"",
-			"composer validate || true",
-			"composer dump-autoload -o || true"
 		]
 	}
 }
