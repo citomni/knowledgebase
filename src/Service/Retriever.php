@@ -23,18 +23,115 @@ use CitOmni\KnowledgeBase\Repository\SynonymRepository;
 use CitOmni\KnowledgeBase\Util\PromptBuilder;
 use CitOmni\KnowledgeBase\Util\ScoreFusion;
 
+
+/**
+ * Execute the knowledge-base retrieval pipeline for lexical, vector, and hybrid search.
+ *
+ * Retriever is a cfg-driven service that owns the full retrieval flow for
+ * question answering over one or more knowledge bases.
+ *
+ * Responsibilities:
+ * - Resolve effective retrieval settings from package cfg plus per-call overrides
+ * - Run lexical retrieval via ChunkRepository
+ * - Run vector retrieval via EmbeddingRepository
+ * - Load synonym data via SynonymRepository and apply query-time lexical expansion
+ * - Fuse ranked result lists via Reciprocal Rank Fusion when both search legs are active
+ * - Optionally rerank candidate chunks via HelloAi using PromptBuilder
+ * - Return ranked chunks plus pipeline metadata for the calling Operation
+ *
+ * Guarantees:
+ * - At least one retrieval leg must be enabled
+ * - Synonym expansion affects only the lexical leg
+ * - Vector retrieval uses the original query embedding unchanged
+ * - Rerank failures degrade gracefully to pre-rerank ordering
+ * - Logging failures never break retrieval
+ *
+ * Notes:
+ * - This service does not decide whether context is sufficient to answer
+ * - This service does not apply the final `min_score` policy gate
+ * - Those responsibilities belong to the calling Operation
+ *
+ * Typical usage:
+ *   $result = $this->app->retriever->retrieve($question, $queryVector, [
+ *       'knowledge_base_ids' => [1],
+ *       'top_k' => 5,
+ *   ]);
+ */
 final class Retriever extends BaseService {
 
+	/**
+	 * Default number of final chunks to return when no explicit top_k override is provided.
+	 */
 	private const DEFAULT_TOP_K = 5;
-	private const DEFAULT_CANDIDATE_MULTIPLIER = 3;
-	private const DEFAULT_MIN_SIMILARITY = 0.70;
-	private const DEFAULT_RRF_K = 60;
-	private const MAX_BOOLEAN_QUERY_LENGTH = 2000;
-	private const MAX_EXPANDED_GROUPS = 8;
-	private const MAX_ALTERNATIVES_PER_GROUP = 8;
 
+
+	/**
+	 * Default multiplier used to expand the candidate pool before reranking.
+	 *
+	 * Example:
+	 * - top_k = 5
+	 * - candidate_multiplier = 3
+	 * - candidate_k = 15
+	 */
+	private const DEFAULT_CANDIDATE_MULTIPLIER = 3;
+
+	
+	/**
+	 * Default minimum cosine similarity for vector-search candidates.
+	 */
+	private const DEFAULT_MIN_SIMILARITY = 0.70;
+	
+	
+	/**
+	 * Default Reciprocal Rank Fusion constant.
+	 *
+	 * Higher values flatten rank differences slightly; lower values increase
+	 * the impact of top positions.
+	 */
+	private const DEFAULT_RRF_K = 60;
+	
+	
+	/**
+	 * Maximum allowed length for the generated boolean FULLTEXT query string.
+	 *
+	 * Expansion is truncated at the last complete synonym group before this
+	 * limit would be exceeded.
+	 */
+	private const MAX_BOOLEAN_QUERY_LENGTH = 2000;
+	
+	
+	/**
+	 * Maximum number of matched synonym groups allowed to participate in one query expansion.
+	 *
+	 * This keeps lexical expansion bounded and predictable.
+	 */
+	private const MAX_EXPANDED_GROUPS = 8;
+	
+	
+	/**
+	 * Maximum number of alternatives emitted per matched synonym group.
+	 *
+	 * This prevents very large synonym groups from producing overly broad
+	 * boolean FULLTEXT queries.
+	 */
+	private const MAX_ALTERNATIVES_PER_GROUP = 8;
+	
+	
+	/**
+	 * Repository for lexical chunk lookup and chunk-level source metadata.
+	 */
 	private ChunkRepository $chunkRepo;
+	
+	
+	/**
+	 * Repository for embedding lookup and vector similarity search.
+	 */
 	private EmbeddingRepository $embeddingRepo;
+	
+	
+	/**
+	 * Repository for loading synonym groups used in query-time lexical expansion.
+	 */
 	private SynonymRepository $synonymRepo;
 
 
@@ -460,15 +557,16 @@ final class Retriever extends BaseService {
 		}
 
 		$query = \implode(' ', $parts);
-		if ($query === '') {
-			return '';
-		}
 
 		if ($wasLengthTruncated) {
 			$this->logWarning(
 				'knowledgebase_boolean_query_truncated',
 				'Maximum boolean query length exceeded. Query expansion was truncated at the last complete group.'
 			);
+		}
+
+		if ($query === '') {
+			return '';
 		}
 
 		return $query;

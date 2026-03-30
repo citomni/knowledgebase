@@ -37,13 +37,11 @@ final class Registry {
 	 * @var array<string, string|array<string, mixed>>
 	 */
 	public const MAP_HTTP = [
-		'greeting' => [
-			'class'   => \CitOmni\ProviderSkeleton\Service\GreetingService::class,
-			'options' => [
-				'prefix' => 'Hello',
-			],
-		],
+	
+		'retriever' => \CitOmni\KnowledgeBase\Service\Retriever::class,
+		
 	];
+
 
 	/**
 	 * HTTP cfg overlay.
@@ -99,14 +97,14 @@ final class Registry {
 	 * @var array<string, array<string, mixed>>
 	 */
 	public const ROUTES_HTTP = [
-		'/hello' => [
-			'controller' => \CitOmni\ProviderSkeleton\Controller\HelloController::class,
-			'action'     => 'index',
-			'methods'    => ['GET'],
-			'options'    => [
-				'who' => 'world',
-			],
-		],
+		// '/hello' => [
+			// 'controller' => \CitOmni\ProviderSkeleton\Controller\HelloController::class,
+			// 'action'     => 'index',
+			// 'methods'    => ['GET'],
+			// 'options'    => [
+				// 'who' => 'world',
+			// ],
+		// ],
 	];
 
 	/**
@@ -129,9 +127,9 @@ final class Registry {
 	 * @var array<string, array<string, mixed>>
 	 */
 	public const COMMANDS_CLI = [
-		'provider-skeleton:demo' => [
-			'command'     => \CitOmni\ProviderSkeleton\Command\DemoCommand::class,
-			'description' => 'Run the provider skeleton demo command',
-		],
+		// 'provider-skeleton:demo' => [
+			// 'command'     => \CitOmni\ProviderSkeleton\Command\DemoCommand::class,
+			// 'description' => 'Run the provider skeleton demo command',
+		// ],
 	];
 }

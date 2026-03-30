@@ -1,36 +1,64 @@
 {
 	"name": "citomni/knowledgebase",
-	"description": "A CitOmni provider based on citomni/provider-skeleton",
+	"description": "Lean knowledge base and grounded question-answering package for CitOmni: Structured document ingest, chunking, hybrid retrieval, synonym expansion, optional reranking, and AI-generated answers grounded in retrieved context.",
 	"type": "library",
 	"license": "MIT",
 	"homepage": "https://github.com/citomni/knowledgebase",
 	"keywords": [
-		"citomni", "provider", "php", "psr-4",
-		"low-overhead", "deterministic", "php8", "green-by-design",
-		"routes", "controller", "service", "command", "framework"
+		"ai",
+		"knowledge-base",
+		"question-answering",
+		"retrieval",
+		"hybrid-retrieval",
+		"rag",
+		"vector-embedding",
+		"semantic-search",
+		"fulltext-search",
+		"synonyms",
+		"llm",
+		"php",
+		"high-performance",
+		"low-overhead",
+		"deterministic",
+		"php8",
+		"citomni",
+		"citomni-framework",
+		"citomni-php",
+		"green-by-design",
+		"deterministic-config",
+		"framework"
 	],
 	"require": {
 		"php": "^8.2",
-		"citomni/kernel": "^1.0"
+		"ext-json": "*",
+		"citomni/kernel": "^1.0",
+		"citomni/infrastructure": "^1.0",
+		"citomni/vectorembedding": "^1.0",
+		"citomni/helloai": "^1.0"
 	},
 	"autoload": {
 		"psr-4": {
-			"CitOmni\\Knowledgebase\\": "src/"
+			"CitOmni\\KnowledgeBase\\": "src/"
 		}
 	},
 	"autoload-dev": {
 		"psr-4": {
-			"CitOmni\\Knowledgebase\\Tests\\": "tests/"
+			"CitOmni\\KnowledgeBase\\Tests\\": "tests/"
 		}
 	},
+	"require-dev": {
+		"phpunit/phpunit": "^11.0",
+		"phpstan/phpstan": "^1.11"
+	},
 	"suggest": {
-		"citomni/http": "HTTP runtime if you expose routes/controllers.",
-		"citomni/cli": "CLI runtime if you expose commands.",
 		"ext-opcache": "Better performance in production.",
-		"ext-apcu": "Speeds up Composer's class loading in production."
+		"citomni/http": "Optional. Install when using KnowledgeBase from HTTP applications.",
+		"citomni/cli": "Optional. Install when using KnowledgeBase from CLI applications or package-provided commands."
 	},
 	"support": {
-		"source": "https://github.com/citomni/knowledgebase"
+		"issues": "https://github.com/citomni/knowledgebase/issues",
+		"source": "https://github.com/citomni/knowledgebase",
+		"docs": "https://github.com/citomni/knowledgebase#readme"
 	},
 	"authors": [
 		{
@@ -40,17 +68,16 @@
 	],
 	"config": {
 		"sort-packages": true,
-		"optimize-autoloader": true,
-		"apcu-autoloader": true
+		"optimize-autoloader": true
 	},
-	"minimum-stability": "stable",
-	"prefer-stable": true,
 	"archive": {
 		"exclude": [
 			"/.github",
 			"/docs",
+			"/tests",
 			"/dev",
 			"/examples",
+			"/vendor",
 			"/.editorconfig",
 			"/.gitattributes",
 			"/.gitignore",
