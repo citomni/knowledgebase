@@ -195,6 +195,7 @@ final class Retriever extends BaseService {
 			$candidateK = $resolved['candidate_k'];
 			$minSimilarity = $resolved['min_similarity'];
 			$embeddingProfile = $resolved['embedding_profile'];
+			$embeddingModel = $this->resolveEmbeddingModel($embeddingProfile);
 			$rrfK = $resolved['rrf_k'];
 
 			if (!$lexicalEnabled && !$vectorEnabled) {
@@ -237,7 +238,7 @@ final class Retriever extends BaseService {
 			if ($vectorEnabled) {
 				$vectorResults = $this->embeddingRepo->findByVector(
 					$queryVector,
-					$embeddingProfile,
+					$embeddingModel,
 					$candidateK,
 					$minSimilarity,
 					$knowledgeBaseIds
@@ -1045,5 +1046,30 @@ final class Retriever extends BaseService {
 		}
 		return 'vector';
 	}
+
+
+	/**
+	 * Resolve an embedding profile id to the concrete provider model name.
+	 *
+	 * @param string $profileId Embedding profile id from knowledgebase cfg.
+	 * @return string Model name stored in know_embeddings.model.
+	 * @throws RetrievalException When the profile is missing or invalid.
+	 */
+	private function resolveEmbeddingModel(string $profileId): string {
+		$profiles = $this->app->cfg->vectorembedding->profiles->toArray();
+
+		if (!isset($profiles[$profileId]) || !\is_array($profiles[$profileId])) {
+			throw new RetrievalException('Embedding profile not found: ' . $profileId);
+		}
+
+		$model = $profiles[$profileId]['model'] ?? null;
+
+		if (!\is_string($model) || \trim($model) === '') {
+			throw new RetrievalException('Embedding profile has no valid model: ' . $profileId);
+		}
+
+		return \trim($model);
+	}
+
 
 }

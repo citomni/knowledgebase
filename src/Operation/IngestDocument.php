@@ -640,18 +640,19 @@ final class IngestDocument extends BaseOperation {
 			]);
 
 			$vectors = $result['vectors'] ?? [];
+			
 			if (\count($vectors) !== \count($batch)) {
 				throw new IngestException(
 					'VectorEmbedder returned ' . \count($vectors) . ' vectors for '
 					. \count($batch) . ' chunks. Expected counts to match.'
 				);
 			}
-
+			
 			$model = (string)($result['model'] ?? $profile);
-
+			
 			$embeddingRows = [];
 			foreach ($batch as $i => $entry) {
-				$vector = $vectors[$i];
+				$vector = $this->extractEmbeddingVector($vectors[$i] ?? null, $i);
 				$embeddingRows[] = [
 					'chunk_id' => $entry['chunk_id'],
 					'model' => $model,
@@ -659,7 +660,7 @@ final class IngestDocument extends BaseOperation {
 					'vector' => $vector,
 				];
 			}
-
+			
 			$this->embeddingsCount += $repo->insertBatch($embeddingRows);
 		}
 	}
@@ -831,6 +832,44 @@ final class IngestDocument extends BaseOperation {
 				$this->ksortRecursive($value);
 			}
 		}
+	}
+
+
+	/**
+	 * Extract the raw float vector from a normalized VectorEmbedder row.
+	 *
+	 * @param mixed $row Vector row.
+	 * @param int $index Batch index for diagnostics.
+	 * @return array Extracted float vector.
+	 * @throws IngestException When the vector row is malformed.
+	 */
+	private function extractEmbeddingVector(mixed $row, int $index): array {
+		if (!\is_array($row)) {
+			throw new IngestException('VectorEmbedder row at index ' . $index . ' must be an array.');
+		}
+
+		$vector = $row['vector'] ?? null;
+		if (!\is_array($vector) || $vector === []) {
+			throw new IngestException('VectorEmbedder row at index ' . $index . ' is missing a non-empty vector array.');
+		}
+
+		foreach ($vector as $vectorIndex => $value) {
+			if (!\is_int($value) && !\is_float($value)) {
+				throw new IngestException(
+					'VectorEmbedder returned a non-numeric vector element at batch index '
+					. $index . ', vector index ' . $vectorIndex . '.'
+				);
+			}
+			$floatValue = (float)$value;
+			if (\is_nan($floatValue) || \is_infinite($floatValue)) {
+				throw new IngestException(
+					'VectorEmbedder returned a non-finite vector element at batch index '
+					. $index . ', vector index ' . $vectorIndex . '.'
+				);
+			}
+		}
+
+		return $vector;
 	}
 
 

@@ -506,27 +506,37 @@ final class QueryKnowledgeBase extends BaseOperation {
 		]);
 
 		$vectors = $result['vectors'] ?? null;
-		if (!\is_array($vectors) || !isset($vectors[0]) || !\is_array($vectors[0]) || $vectors[0] === []) {
-			throw new RetrievalException('VectorEmbedder did not return the first embedding vector for the query item.');
+		if (!\is_array($vectors) || !isset($vectors[0])) {
+			throw new RetrievalException('VectorEmbedder did not return the first embedding row for the query item.');
 		}
 
-		$vector = [];
-		foreach ($vectors[0] as $index => $value) {
+		$row = $vectors[0];
+		if (!\is_array($row)) {
+			throw new RetrievalException('VectorEmbedder returned a malformed embedding row for the query item.');
+		}
+
+		$vector = $row['vector'] ?? null;
+		if (!\is_array($vector) || $vector === []) {
+			throw new RetrievalException('VectorEmbedder did not return a non-empty query vector.');
+		}
+
+		$normalized = [];
+		foreach ($vector as $index => $value) {
 			if (!\is_int($value) && !\is_float($value)) {
-				throw new RetrievalException('VectorEmbedder returned a non-numeric vector element at index ' . $index . '.');
+				throw new RetrievalException('VectorEmbedder returned a non-numeric query vector element at index ' . $index . '.');
 			}
 			$floatValue = (float)$value;
 			if (\is_nan($floatValue) || \is_infinite($floatValue)) {
-				throw new RetrievalException('VectorEmbedder returned a non-finite vector element at index ' . $index . '.');
+				throw new RetrievalException('VectorEmbedder returned a non-finite query vector element at index ' . $index . '.');
 			}
-			$vector[] = $floatValue;
+			$normalized[] = $floatValue;
 		}
 
-		if ($vector === []) {
+		if ($normalized === []) {
 			throw new RetrievalException('VectorEmbedder returned an empty query vector.');
 		}
 
-		return $vector;
+		return $normalized;
 	}
 
 

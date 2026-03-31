@@ -13,7 +13,7 @@ declare(strict_types=1);
  * please see the LICENSE file distributed with this source code.
  */
 
-namespace CitOmni\ProviderSkeleton\Boot;
+namespace CitOmni\KnowledgeBase\Boot;
 
 /**
  * Declare this provider package's boot contributions.
@@ -52,7 +52,7 @@ final class Registry {
 	
 		'knowledgebase' => [
 			'embedding_profile' => 'openai-text-embedding-3-small',
-			'chat_profile'      => 'openai-gpt-4o-mini',
+			'chat_profile'      => 'gpt-5.4-nano',
 			'chunker' => [
 				'strategy'       => 'fixed_size',
 				'max_tokens'     => 512,
@@ -64,9 +64,9 @@ final class Registry {
 			'retrieval' => [
 				'lexical'              => true,
 				'vector'               => true,
-				'rerank'               => false,
+				'rerank'               => true,
 				'synonym_expansion'    => true,
-				'top_k'                => 5,
+				'top_k'                => 7,
 				'candidate_multiplier' => 3,
 				'min_similarity'       => 0.70,
 				'min_score'            => 0.0,
@@ -127,9 +127,53 @@ final class Registry {
 	 * @var array<string, array<string, mixed>>
 	 */
 	public const COMMANDS_CLI = [
-		// 'provider-skeleton:demo' => [
-			// 'command'     => \CitOmni\ProviderSkeleton\Command\DemoCommand::class,
-			// 'description' => 'Run the provider skeleton demo command',
+		'know:create-base' => [
+			'command'     => \CitOmni\KnowledgeBase\Command\CreateBaseCommand::class,
+			'description' => 'Create a knowledge base container',
+		],
+		// 'know:ingest' => [
+			// 'command'     => \CitOmni\KnowledgeBase\Command\IngestCommand::class,
+			// 'description' => 'Ingest a document into the knowledge base',
 		// ],
+		'know:search' => [
+			'command'     => \CitOmni\KnowledgeBase\Command\SearchCommand::class,
+			'description' => 'Test a retrieval query from the command line',
+		],
+		// 'know:stats' => [
+			// 'command'     => \CitOmni\KnowledgeBase\Command\StatsCommand::class,
+			// 'description' => 'Show knowledge base statistics',
+		// ],
+		// 'know:purge' => [
+			// 'command'     => \CitOmni\KnowledgeBase\Command\PurgeCommand::class,
+			// 'description' => 'Remove a document and its descendants from the knowledge base',
+		// ],
+		// 'know:setup-query-log' => [
+			// 'command'     => \CitOmni\KnowledgeBase\Command\SetupQueryLogCommand::class,
+			// 'description' => 'Create the optional query log table',
+		// ],
+		// 'know:prune-query-log' => [
+			// 'command'     => \CitOmni\KnowledgeBase\Command\PruneQueryLogCommand::class,
+			// 'description' => 'Prune old query log entries',
+		// ],
+		// 'know:synonyms:import' => [
+			// 'command'     => \CitOmni\KnowledgeBase\Command\SynonymsImportCommand::class,
+			// 'description' => 'Bulk-import synonym groups from JSON or CSV',
+		// ],
+		// 'know:synonyms:list' => [
+			// 'command'     => \CitOmni\KnowledgeBase\Command\SynonymsListCommand::class,
+			// 'description' => 'List all synonym groups for a knowledge base',
+		// ],
+		// 'know:synonyms:add' => [
+			// 'command'     => \CitOmni\KnowledgeBase\Command\SynonymsAddCommand::class,
+			// 'description' => 'Create one synonym group and its term rows',
+		// ],
+		// 'know:synonyms:remove' => [
+			// 'command'     => \CitOmni\KnowledgeBase\Command\SynonymsRemoveCommand::class,
+			// 'description' => 'Remove one synonym group and its term rows',
+		// ],
+		'know:import-retsinformation' => [
+			'command'     => \CitOmni\KnowledgeBase\Command\ImportRetsinformationCommand::class,
+			'description' => 'Importer HTML med lovtekst fra Retsinformation.dk',
+		],
 	];
 }

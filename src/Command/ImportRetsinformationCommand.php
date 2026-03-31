@@ -104,7 +104,6 @@ final class ImportRetsinformationCommand extends BaseCommand {
 					'default' => 'active',
 				],
 				'dry-run' => [
-					'dash' => 'dry-run',
 					'type' => 'bool',
 					'description' => 'Parse and show summary without ingesting',
 					'default' => false,
@@ -241,9 +240,9 @@ final class ImportRetsinformationCommand extends BaseCommand {
 		$currentParagraphIndex = null;
 
 		$chapterSortOrder = 0;
-		$groupSortOrder = 0;
-		$paragraphSortOrder = 0;
-		$childSortOrder = 0;
+		$chapterChildSortOrder = 0;
+		$groupChildSortOrder = 0;
+		$paragraphChildSortOrder = 0;
 
 		$pendingChapterTitle = null;
 
@@ -270,9 +269,9 @@ final class ImportRetsinformationCommand extends BaseCommand {
 				}
 
 				$chapterSortOrder++;
-				$groupSortOrder = 0;
-				$paragraphSortOrder = 0;
-				$childSortOrder = 0;
+				$chapterChildSortOrder = 0;
+				$groupChildSortOrder = 0;
+				$paragraphChildSortOrder = 0;
 				$currentGroupIndex = null;
 				$currentParagraphIndex = null;
 				$pendingChapterTitle = null;
@@ -326,9 +325,9 @@ final class ImportRetsinformationCommand extends BaseCommand {
 					$pendingChapterTitle = null;
 				}
 
-				$groupSortOrder++;
-				$paragraphSortOrder = 0;
-				$childSortOrder = 0;
+				$chapterChildSortOrder++;
+				$groupChildSortOrder = 0;
+				$paragraphChildSortOrder = 0;
 				$currentParagraphIndex = null;
 
 				$documentUnits[$currentChapterIndex]['children'][] = $this->createUnit(
@@ -336,7 +335,7 @@ final class ImportRetsinformationCommand extends BaseCommand {
 					null,
 					$title,
 					null,
-					$groupSortOrder
+					$chapterChildSortOrder
 				);
 				$currentGroupIndex = \count($documentUnits[$currentChapterIndex]['children']) - 1;
 				continue;
@@ -365,25 +364,40 @@ final class ImportRetsinformationCommand extends BaseCommand {
 					$pendingChapterTitle = null;
 				}
 
-				$paragraphSortOrder++;
-				$childSortOrder = 0;
-
-				$paragraphUnit = $this->createUnit(
-					'paragraph',
-					$paragraph['identifier'],
-					null,
-					$paragraph['body'],
-					$paragraphSortOrder,
-					[
-						'source_class' => 'Paragraf',
-						'source_id' => $this->normalizeNullableText($node->getAttribute('id')),
-					]
-				);
+				$paragraphChildSortOrder = 0;
 
 				if ($currentGroupIndex !== null) {
+					$groupChildSortOrder++;
+
+					$paragraphUnit = $this->createUnit(
+						'paragraph',
+						$paragraph['identifier'],
+						null,
+						$paragraph['body'],
+						$groupChildSortOrder,
+						[
+							'source_class' => 'Paragraf',
+							'source_id' => $this->normalizeNullableText($node->getAttribute('id')),
+						]
+					);
+
 					$documentUnits[$currentChapterIndex]['children'][$currentGroupIndex]['children'][] = $paragraphUnit;
 					$currentParagraphIndex = \count($documentUnits[$currentChapterIndex]['children'][$currentGroupIndex]['children']) - 1;
 				} else {
+					$chapterChildSortOrder++;
+
+					$paragraphUnit = $this->createUnit(
+						'paragraph',
+						$paragraph['identifier'],
+						null,
+						$paragraph['body'],
+						$chapterChildSortOrder,
+						[
+							'source_class' => 'Paragraf',
+							'source_id' => $this->normalizeNullableText($node->getAttribute('id')),
+						]
+					);
+
 					$documentUnits[$currentChapterIndex]['children'][] = $paragraphUnit;
 					$currentParagraphIndex = \count($documentUnits[$currentChapterIndex]['children']) - 1;
 				}
@@ -396,13 +410,13 @@ final class ImportRetsinformationCommand extends BaseCommand {
 					continue;
 				}
 
-				$childSortOrder++;
+				$paragraphChildSortOrder++;
 				$childUnit = $this->createUnit(
 					'subsection',
 					$subsection['identifier'],
 					null,
 					$subsection['body'],
-					$childSortOrder,
+					$paragraphChildSortOrder,
 					[
 						'source_class' => 'Stk2',
 						'source_id' => $this->normalizeNullableText($node->getAttribute('id')),
@@ -423,13 +437,13 @@ final class ImportRetsinformationCommand extends BaseCommand {
 					continue;
 				}
 
-				$childSortOrder++;
+				$paragraphChildSortOrder++;
 				$childUnit = $this->createUnit(
 					'list_item',
 					$listItem['identifier'],
 					null,
 					$listItem['body'],
-					$childSortOrder,
+					$paragraphChildSortOrder,
 					[
 						'source_class' => 'Liste1',
 						'source_id' => $this->normalizeNullableText($node->getAttribute('id')),
