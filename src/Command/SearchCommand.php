@@ -477,7 +477,7 @@ final class SearchCommand extends BaseCommand {
 				$line .= ' document="' . $documentTitle . '"';
 			}
 
-			$unitIdentifier = $source['unit_identifier'] ?? null;
+			$unitIdentifier = $source['doc_path_identifier'] ?? ($source['unit_identifier'] ?? null);
 			if (\is_string($unitIdentifier) && $unitIdentifier !== '') {
 				$line .= ' unit="' . $unitIdentifier . '"';
 			}

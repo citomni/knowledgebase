@@ -19,6 +19,7 @@ use CitOmni\Kernel\Operation\BaseOperation;
 use CitOmni\KnowledgeBase\Exception\RetrievalException;
 use CitOmni\KnowledgeBase\Repository\KnowledgeBaseRepository;
 use CitOmni\KnowledgeBase\Repository\QueryLogRepository;
+use CitOmni\KnowledgeBase\Repository\UnitRepository;
 use CitOmni\KnowledgeBase\Util\PromptBuilder;
 
 /**
@@ -69,6 +70,8 @@ final class QueryKnowledgeBase extends BaseOperation {
 	/** @var QueryLogRepository Repository for optional query-log writes. */
 	private QueryLogRepository $queryLogRepo;
 
+	/** @var UnitRepository Repository for enriching units with document-rooted path identifiers. */
+	private UnitRepository $unitRepo;
 
 
 	/**
@@ -79,6 +82,7 @@ final class QueryKnowledgeBase extends BaseOperation {
 	protected function init(): void {
 		$this->knowledgeBaseRepo = new KnowledgeBaseRepository($this->app);
 		$this->queryLogRepo = new QueryLogRepository($this->app);
+		$this->unitRepo = new UnitRepository($this->app);
 	}
 
 
@@ -137,6 +141,7 @@ final class QueryKnowledgeBase extends BaseOperation {
 			]);
 
 			$sources = $this->filterSourcesByMinScore($retrieval['chunks'] ?? [], $minScore);
+			$sources = $this->attachDocPathIdentifiersToSources($sources);
 			$retrievalMeta = $this->normalizeRetrievalMeta($retrieval['meta'] ?? []);
 
 			// -- 5. Enforce minimum context policy ---------------------------
@@ -668,6 +673,89 @@ final class QueryKnowledgeBase extends BaseOperation {
 		return \is_array($usage) ? $usage : null;
 	}
 
+
+	/**
+	 * Attach document-rooted path identifiers to source rows when unit metadata is available.
+	 *
+	 * Added fields per source row:
+	 * - unit_id
+	 * - unit_identifier
+	 * - doc_path_identifier
+	 *
+	 * @param array $sources Ranked source rows.
+	 * @return array Enriched source rows.
+	 */
+	private function attachDocPathIdentifiersToSources(array $sources): array {
+		if ($sources === []) {
+			return [];
+		}
+
+		$unitRows = [];
+		$sourceIndexes = [];
+
+		foreach ($sources as $index => $source) {
+			if (!\is_array($source)) {
+				continue;
+			}
+
+			$unitId = $source['unit_id'] ?? null;
+			$documentId = $source['document_id'] ?? null;
+			$path = $source['unit_path'] ?? null;
+			$identifier = $source['unit_identifier'] ?? null;
+
+			if (!\is_int($unitId) || $unitId <= 0) {
+				continue;
+			}
+			if (!\is_int($documentId) || $documentId <= 0) {
+				continue;
+			}
+			if (!\is_string($path) || $path === '') {
+				continue;
+			}
+
+			$unitRows[] = [
+				'id' => $unitId,
+				'document_id' => $documentId,
+				'identifier' => \is_string($identifier) && \trim($identifier) !== '' ? \trim($identifier) : null,
+				'path' => $path,
+			];
+
+			$sourceIndexes[$unitId] = $index;
+		}
+
+		if ($unitRows === []) {
+			return $sources;
+		}
+
+		$enrichedUnits = $this->unitRepo->attachDocPathIdentifiers($unitRows);
+
+		foreach ($enrichedUnits as $unitRow) {
+			if (!\is_array($unitRow)) {
+				continue;
+			}
+
+			$unitId = $unitRow['unit_id'] ?? null;
+			if (!\is_int($unitId) || !isset($sourceIndexes[$unitId])) {
+				continue;
+			}
+
+			$sourceIndex = $sourceIndexes[$unitId];
+
+			if (\array_key_exists('unit_id', $unitRow)) {
+				$sources[$sourceIndex]['unit_id'] = $unitRow['unit_id'];
+			}
+
+			if (\array_key_exists('unit_identifier', $unitRow)) {
+				$sources[$sourceIndex]['unit_identifier'] = $unitRow['unit_identifier'];
+			}
+
+			if (\array_key_exists('doc_path_identifier', $unitRow)) {
+				$sources[$sourceIndex]['doc_path_identifier'] = $unitRow['doc_path_identifier'];
+			}
+		}
+
+		return $sources;
+	}
 
 
 

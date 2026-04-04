@@ -111,6 +111,98 @@ final class UnitRepository extends BaseRepository {
 
 
 	/**
+	 * Find one unit by id and attach a document-rooted path identifier.
+	 *
+	 * Added fields:
+	 * - unit_id
+	 * - unit_identifier
+	 * - doc_path_identifier
+	 *
+	 * Example:
+	 * - document title: "Lov om leje"
+	 * - unit path: § 15 -> Stk. 4.
+	 * - result doc_path_identifier: "Lov om leje, § 15, Stk. 4."
+	 *
+	 * @param int $id Unit id.
+	 * @return ?array Hydrated unit row with path identifier fields or null when not found.
+	 */
+	public function findByIdWithDocPathIdentifier(int $id): ?array {
+		$row = $this->findById($id);
+
+		if ($row === null) {
+			return null;
+		}
+
+		$rows = $this->attachDocPathIdentifiers([$row]);
+
+		return $rows[0] ?? null;
+	}
+	
+	
+	/**
+	 * Attach document-rooted path identifier fields to hydrated unit rows.
+	 *
+	 * Added fields per row:
+	 * - unit_id
+	 * - unit_identifier
+	 * - doc_path_identifier
+	 *
+	 * Notes:
+	 * - Input rows must already be hydrated unit rows and must contain at least:
+	 *   id, document_id, path, identifier.
+	 * - Rows without a valid id/document_id/path are returned unchanged except for
+	 *   best-effort fallback fields.
+	 *
+	 * @param array $rows Hydrated unit rows.
+	 * @return array Rows with added identifier helper fields.
+	 */
+	public function attachDocPathIdentifiers(array $rows): array {
+		if ($rows === []) {
+			return [];
+		}
+
+		$documentIds = [];
+		$pathPrefixesByDocument = [];
+
+		foreach ($rows as $row) {
+			if (!\is_array($row)) {
+				continue;
+			}
+
+			$documentId = $row['document_id'] ?? null;
+			$path = $row['path'] ?? null;
+
+			if (!\is_int($documentId) || $documentId <= 0) {
+				continue;
+			}
+
+			if (!\is_string($path) || $path === '') {
+				continue;
+			}
+
+			$documentIds[$documentId] = true;
+
+			$segments = \explode('.', $path);
+			$prefix = '';
+
+			foreach ($segments as $segment) {
+				$prefix = $prefix === '' ? $segment : ($prefix . '.' . $segment);
+				$pathPrefixesByDocument[$documentId][$prefix] = true;
+			}
+		}
+
+		if ($documentIds === []) {
+			return $this->applyIdentifierFallbacks($rows, [], []);
+		}
+
+		$documentTitleMap = $this->loadDocumentTitles(\array_keys($documentIds));
+		$pathLabelMap = $this->loadUnitIdentifierMap($pathPrefixesByDocument);
+
+		return $this->applyIdentifierFallbacks($rows, $documentTitleMap, $pathLabelMap);
+	}
+
+
+	/**
 	 * Find direct children for one parent.
 	 *
 	 * @param int $parentId Parent unit id.
@@ -663,6 +755,162 @@ final class UnitRepository extends BaseRepository {
 
 		return $pathPrefix;
 	}
+
+
+	/**
+	 * Load document titles keyed by document id.
+	 *
+	 * @param array $documentIds Document ids.
+	 * @return array<int, string> Document titles keyed by id.
+	 */
+	private function loadDocumentTitles(array $documentIds): array {
+		if ($documentIds === []) {
+			return [];
+		}
+
+		$placeholders = \implode(', ', \array_fill(0, \count($documentIds), '?'));
+		$rows = $this->app->db->fetchAll(
+			'SELECT id, title
+			FROM know_documents
+			WHERE id IN (' . $placeholders . ')',
+			$documentIds
+		);
+
+		$map = [];
+
+		foreach ($rows as $row) {
+			$id = isset($row['id']) ? (int)$row['id'] : 0;
+			$title = isset($row['title']) ? \trim((string)$row['title']) : '';
+
+			if ($id > 0 && $title !== '') {
+				$map[$id] = $title;
+			}
+		}
+
+		return $map;
+	}
+
+
+	/**
+	 * Load unit identifiers keyed by document id and path.
+	 *
+	 * Returned shape:
+	 * - [documentId][path] => identifier
+	 *
+	 * @param array $pathPrefixesByDocument Requested path prefixes grouped by document id.
+	 * @return array<int, array<string, string>> Identifier map.
+	 */
+	private function loadUnitIdentifierMap(array $pathPrefixesByDocument): array {
+		if ($pathPrefixesByDocument === []) {
+			return [];
+		}
+
+		$conditions = [];
+		$params = [];
+
+		foreach ($pathPrefixesByDocument as $documentId => $paths) {
+			if (!\is_int($documentId) || $documentId <= 0 || !\is_array($paths) || $paths === []) {
+				continue;
+			}
+
+			$validPaths = \array_keys($paths);
+			if ($validPaths === []) {
+				continue;
+			}
+
+			$placeholders = \implode(', ', \array_fill(0, \count($validPaths), '?'));
+			$conditions[] = '(document_id = ? AND path IN (' . $placeholders . '))';
+
+			$params[] = $documentId;
+			foreach ($validPaths as $path) {
+				$params[] = $path;
+			}
+		}
+
+		if ($conditions === []) {
+			return [];
+		}
+
+		$rows = $this->app->db->fetchAll(
+			'SELECT document_id, path, identifier
+			FROM know_units
+			WHERE ' . \implode(' OR ', $conditions) . '
+			ORDER BY document_id ASC, path ASC',
+			$params
+		);
+
+		$map = [];
+
+		foreach ($rows as $row) {
+			$documentId = isset($row['document_id']) ? (int)$row['document_id'] : 0;
+			$path = isset($row['path']) ? (string)$row['path'] : '';
+			$identifier = isset($row['identifier']) && $row['identifier'] !== null ? \trim((string)$row['identifier']) : '';
+
+			if ($documentId <= 0 || $path === '' || $identifier === '') {
+				continue;
+			}
+
+			$map[$documentId][$path] = $identifier;
+		}
+
+		return $map;
+	}
+
+
+	/**
+	 * Apply identifier helper fields to rows.
+	 *
+	 * @param array $rows Input rows.
+	 * @param array $documentTitleMap Document titles keyed by document id.
+	 * @param array $pathLabelMap Unit identifiers keyed by document id and path.
+	 * @return array Rows with helper fields added.
+	 */
+	private function applyIdentifierFallbacks(array $rows, array $documentTitleMap, array $pathLabelMap): array {
+		foreach ($rows as $index => $row) {
+			if (!\is_array($row)) {
+				continue;
+			}
+
+			$unitId = isset($row['id']) ? (int)$row['id'] : 0;
+			$unitIdentifier = isset($row['identifier']) && $row['identifier'] !== null ? (string)$row['identifier'] : null;
+			$documentId = isset($row['document_id']) ? (int)$row['document_id'] : 0;
+			$path = isset($row['path']) && \is_string($row['path']) ? $row['path'] : '';
+
+			$docPathIdentifier = $unitIdentifier;
+
+			if ($documentId > 0 && $path !== '') {
+				$parts = [];
+
+				$documentTitle = $documentTitleMap[$documentId] ?? null;
+				if (\is_string($documentTitle) && $documentTitle !== '') {
+					$parts[] = $documentTitle;
+				}
+
+				$segments = \explode('.', $path);
+				$prefix = '';
+
+				foreach ($segments as $segment) {
+					$prefix = $prefix === '' ? $segment : ($prefix . '.' . $segment);
+					$identifierPart = $pathLabelMap[$documentId][$prefix] ?? null;
+
+					if (\is_string($identifierPart) && $identifierPart !== '') {
+						$parts[] = $identifierPart;
+					}
+				}
+
+				if ($parts !== []) {
+					$docPathIdentifier = \implode(', ', $parts);
+				}
+			}
+
+			$rows[$index]['unit_id'] = $unitId > 0 ? $unitId : null;
+			$rows[$index]['unit_identifier'] = $unitIdentifier;
+			$rows[$index]['doc_path_identifier'] = $docPathIdentifier;
+		}
+
+		return $rows;
+	}
+
 
 
 

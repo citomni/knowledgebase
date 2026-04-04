@@ -290,7 +290,9 @@ TEXT;
 	private static function buildPromptChunkBlock(array $chunk, int $position): string {
 		$documentTitle = self::normalizeRequiredString($chunk['document_title'] ?? null, 'document_title');
 		$chunkContent = self::normalizeRequiredString($chunk['content'] ?? null, 'content');
-		$unitIdentifier = self::normalizeNullableString($chunk['unit_identifier'] ?? null);
+		$unitIdentifier = self::normalizeNullableString(
+			$chunk['doc_path_identifier'] ?? ($chunk['unit_identifier'] ?? null)
+		);
 
 		$lines = [];
 		$lines[] = '[Chunk ' . $position . ']';
@@ -328,7 +330,9 @@ TEXT;
 			$chunkId = self::normalizePositiveInt($chunk['chunk_id'] ?? null, 'chunk_id');
 			$documentTitle = self::normalizeRequiredString($chunk['document_title'] ?? null, 'document_title');
 			$chunkContent = self::normalizeRequiredString($chunk['content'] ?? null, 'content');
-			$unitIdentifier = self::normalizeNullableString($chunk['unit_identifier'] ?? null);
+			$unitIdentifier = self::normalizeNullableString(
+				$chunk['doc_path_identifier'] ?? ($chunk['unit_identifier'] ?? null)
+			);
 
 			$lines = [];
 			$lines[] = '[Candidate ' . ($index + 1) . ']';
