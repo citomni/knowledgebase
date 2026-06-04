@@ -86,5 +86,10 @@
 			"/.vscode",
 			"/Makefile"
 		]
+	},
+	"extra": {
+		"branch-alias": {
+			"dev-main": "1.0.x-dev"
+		}
 	}
 }
