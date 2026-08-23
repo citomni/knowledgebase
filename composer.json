@@ -29,7 +29,7 @@
 		"framework"
 	],
 	"require": {
-		"php": "^8.2",
+		"php": "^8.5",
 		"ext-json": "*",
 		"citomni/kernel": "^1.0",
 		"citomni/infrastructure": "^1.0",
