@@ -14,6 +14,7 @@
 *.ini text eol=lf
 *.sql text eol=lf
 *.env.example text eol=lf
+.env.example text eol=lf
 
 # Web and template files.
 *.html text eol=lf
@@ -23,6 +24,7 @@
 *.svg text eol=lf
 *.tpl text eol=lf
 *.stub text eol=lf
+*.webmanifest text eol=lf
 .htaccess text eol=lf
 
 # Shell and CLI files.
@@ -33,17 +35,37 @@
 # Git placeholders.
 .gitkeep text eol=lf
 
-# Binary files.
+# Binary image files.
 *.png binary
 *.jpg binary
 *.jpeg binary
 *.gif binary
 *.ico binary
 *.webp binary
+*.avif binary
+
+# Binary font files.
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+
+# Binary document and archive files.
 *.pdf binary
 *.zip binary
 *.gz binary
+*.tar binary
+*.tgz binary
+*.7z binary
+*.rar binary
 *.phar binary
+
+# Binary media files.
+*.mp3 binary
+*.mp4 binary
+*.mov binary
+*.webm binary
 
 # Repository-only metadata.
 /.github                 export-ignore
