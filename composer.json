@@ -28,8 +28,6 @@
 	"require": {
 		"php": "^8.5",
 		"ext-json": "*",
-		"citomni/kernel": "^1.0",
-		"citomni/infrastructure": "^1.0",
 		"citomni/vectorembedding": "^1.0",
 		"citomni/helloai": "^1.0"
 	},
