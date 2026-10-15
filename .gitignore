@@ -1,3 +1,63 @@
-# Globals
+# CitOmni package ignore rules
+#
+# This file keeps local dependencies, generated files, caches, coverage reports,
+# editor metadata, and machine-local workspace folders out of Git.
+#
+# Notes
+# - Root folders starting with "_" are treated as local/private workspace folders.
+# - This is a Composer library package, not an application skeleton.
+# - composer.lock is ignored here because reusable packages should not force a
+#   root dependency lock on consuming applications.
+
+# Root-local/private folders
+/_*/
+
+# Composer dependencies
+/vendor/
+
+# Composer lock file for local package development
+/composer.lock
+
+# Composer local auth
+/auth.json
+
+# PHPUnit and test output
+/.phpunit.cache/
+/.phpunit.result.cache
+/coverage/
+/build/
+/test-results/
+
+# Static analysis and tooling caches
+/.phpstan.cache/
+/.psalm/cache/
+/.php-cs-fixer.cache
+
+# Node dependencies, if temporary frontend tooling is ever used
+/node_modules/
+/package-lock.json
+/yarn.lock
+/pnpm-lock.yaml
+
+# Local backup folders and files
+**/_backups/
 *.bck
-_internal/
+*.bak
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# IDE and editor metadata
+/.idea/
+/.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
