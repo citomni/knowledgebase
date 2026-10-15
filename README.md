@@ -41,15 +41,16 @@ return [
 ];
 ```
 
-(Optional) override defaults:
+(Optional) override defaults. The baseline is shared by HTTP and CLI, so override it in the common app config:
 
 ```php
 <?php
-// app/config/citomni_http_cfg.php
+// app/config/citomni_cfg.php
 return [
 	'knowledgebase' => [
-		'enabled' => true,
-		// your provider-level config here...
+		'retrieval' => [
+			'top_k' => 10, // Chunks returned per query.
+		],
 	],
 ];
 ```
@@ -102,14 +103,20 @@ Keep it fast. Defer heavy work until first actual use.
 Per mode (**HTTP|CLI**), config merges in this order:
 
 1. Vendor baseline (by mode)
-2. Providers (in `/config/providers.php`, order matters)
-3. App base (`/config/citomni_{http|cli}_cfg.php`)
-4. Env overlay (`/config/citomni_{http|cli}_cfg.{dev|stage|prod}.php`)
+2. Providers (in `/config/providers.php`, order matters), each with `CFG_COMMON` then its mode constant
+3. App common base (`/config/citomni_cfg.php`), then mode base (`/config/citomni_{http|cli}_cfg.php`)
+4. App common env overlay (`/config/citomni_cfg.{dev|stage|prod}.php`), then mode env overlay (`/config/citomni_{http|cli}_cfg.{dev|stage|prod}.php`)
 
-Config is exposed as a **deep, read-only** wrapper:
+Config is exposed as a **deep, read-only** wrapper. A direct read throws `\OutOfBoundsException` at the first missing key; `??` and `isset()` never throw on a missing key, so they hide it.
+
+The package reads the cfg its Registry ships directly. Cfg owned by the app or another package, or present in one mode only, is read with `?? <default>`:
 
 ```php
-$baseUrl = $this->app->cfg->http->base_url;
+// Own cfg: CFG_COMMON ships knowledgebase.retrieval.top_k.
+$topK = (int)$this->app->cfg->knowledgebase->retrieval->top_k;
+
+// locale.timezone is app cfg.
+$timezone = (string)($this->app->cfg->locale->timezone ?? 'UTC');
 ```
 
 > **Note:** Routes are **not** part of configuration.
@@ -138,11 +145,7 @@ final class Registry {
 
 	/** Services for HTTP and CLI. */
 	public const array MAP_COMMON = [
-		// Example: service with options
-		'greeting' => [
-			'class'   => \CitOmni\Knowledgebase\Service\GreetingService::class,
-			'options' => ['prefix' => 'Hello'],
-		],
+		'greeting' => \CitOmni\Knowledgebase\Service\GreetingService::class,
 	];
 
 	/** Cfg baseline for HTTP and CLI. */
@@ -178,14 +181,17 @@ use CitOmni\Kernel\Service\BaseService;
 
 final class GreetingService extends BaseService {
 
+	/** Text placed before the name. */
+	private string $prefix;
+
 	protected function init(): void {
-		// Lightweight one-time setup only
+		// A prefix option, set in the service map, wins over cfg knowledgebase.greeting.prefix.
+		// The cfg read is not guarded: CFG_COMMON ships it.
+		$this->prefix = (string)($this->options['prefix'] ?? $this->app->cfg->knowledgebase->greeting->prefix);
 	}
 
 	public function make(string $name): string {
-		$cfgPrefix = $this->app->cfg->toArray()['knowledgebase']['greeting']['prefix'] ?? null;
-		$prefix = \is_string($cfgPrefix) && $cfgPrefix !== '' ? $cfgPrefix : ($this->options['prefix'] ?? 'Hello');
-		return $prefix . ', ' . $name;
+		return $this->prefix . ', ' . $name;
 	}
 }
 ```
