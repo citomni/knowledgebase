@@ -16,27 +16,26 @@ declare(strict_types=1);
 namespace CitOmni\KnowledgeBase\Boot;
 
 /**
- * Declare this provider package's boot contributions.
+ * Registry: Boot contributions of citomni/knowledgebase.
  *
- * Behavior:
- * - Registers HTTP and CLI service bindings.
- * - Registers HTTP cfg overlays.
- * - Registers HTTP routes.
- * - Registers CLI commands through COMMANDS_CLI.
+ * Declares what the package adds to a host app as constant arrays. Merging them with the host
+ * app's own maps, and deciding what wins, belongs to the kernel.
  *
- * Notes:
- * - Commands belong in COMMANDS_CLI, not in MAP_CLI.
- * - Dispatch maps must remain separate from CFG constants.
- * - CLI mode may reuse the same provider cfg/service baselines as HTTP mode.
+ * Rules:
+ * - Constants only: No IO, no runtime branching and no environment reads.
+ * - Services and cfg that work in both modes go in MAP_COMMON and CFG_COMMON. A mode-specific
+ *   constant holds only values that depend on one runtime.
+ * - Commands go in COMMANDS_CLI and routes in ROUTES_HTTP, never in a service map or a cfg
+ *   constant.
  */
 final class Registry {
 
 	/**
-	 * HTTP service map.
+	 * Services for HTTP and CLI.
 	 *
 	 * @var array<string, string|array<string, mixed>>
 	 */
-	public const MAP_HTTP = [
+	public const array MAP_COMMON = [
 	
 		'retriever' => \CitOmni\KnowledgeBase\Service\Retriever::class,
 		
@@ -44,11 +43,11 @@ final class Registry {
 
 
 	/**
-	 * HTTP cfg overlay.
+	 * Cfg baseline for HTTP and CLI.
 	 *
 	 * @var array<string, mixed>
 	 */
-	public const CFG_HTTP = [
+	public const array CFG_COMMON = [
 	
 		'knowledgebase' => [
 			'embedding_profile' => 'openai-text-embedding-3-small',
@@ -96,7 +95,7 @@ final class Registry {
 	 *
 	 * @var array<string, array<string, mixed>>
 	 */
-	public const ROUTES_HTTP = [
+	public const array ROUTES_HTTP = [
 		// '/hello' => [
 			// 'controller' => \CitOmni\ProviderSkeleton\Controller\HelloController::class,
 			// 'action'     => 'index',
@@ -108,25 +107,11 @@ final class Registry {
 	];
 
 	/**
-	 * CLI service map.
-	 *
-	 * @var array<string, string|array<string, mixed>>
-	 */
-	public const MAP_CLI = self::MAP_HTTP;
-
-	/**
-	 * CLI cfg overlay.
-	 *
-	 * @var array<string, mixed>
-	 */
-	public const CFG_CLI = self::CFG_HTTP;
-
-	/**
 	 * CLI commands.
 	 *
 	 * @var array<string, array<string, mixed>>
 	 */
-	public const COMMANDS_CLI = [
+	public const array COMMANDS_CLI = [
 		'know:create-base' => [
 			'command'     => \CitOmni\KnowledgeBase\Command\CreateBaseCommand::class,
 			'description' => 'Create a knowledge base container',

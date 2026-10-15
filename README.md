@@ -59,12 +59,12 @@ return [
 ## What this provider ships
 
 * **Registry constants** (declared in `src/Boot/Registry.php`):
-  * `MAP_HTTP`, `CFG_HTTP`, `ROUTES_HTTP`
-  * `MAP_CLI`, `CFG_CLI`
+  * `MAP_COMMON`, `CFG_COMMON` (both modes)
+  * `ROUTES_HTTP`, `COMMANDS_CLI`
 
 * **Service(s)**:
   * **Best practice:** extend `\CitOmni\Kernel\Service\BaseService`
-  * Registered via `MAP_HTTP` / `MAP_CLI`
+  * Registered via `MAP_COMMON`
 
 * **(Optional) HTTP controller(s)**:
   * **Best practice:** extend `\CitOmni\Kernel\Controller\BaseController`
@@ -128,17 +128,16 @@ declare(strict_types=1);
 namespace CitOmni\Knowledgebase\Boot;
 
 /**
- * Registry:
- * Declares this package's contributions to the host app:
- * - MAP_HTTP / MAP_CLI service bindings
- * - CFG_HTTP / CFG_CLI config overlay
- * - ROUTES_HTTP HTTP route definitions
+ * Registry: Boot contributions of citomni/knowledgebase.
  *
- * The App boot process will merge these into the final runtime.
+ * Rules:
+ * - Services and cfg that work in both modes go in MAP_COMMON and CFG_COMMON. A mode-specific
+ *   constant (MAP_HTTP, MAP_CLI, CFG_HTTP, CFG_CLI) holds only values that depend on one runtime.
  */
 final class Registry {
 
-	public const MAP_HTTP = [
+	/** Services for HTTP and CLI. */
+	public const array MAP_COMMON = [
 		// Example: service with options
 		'greeting' => [
 			'class'   => \CitOmni\Knowledgebase\Service\GreetingService::class,
@@ -146,24 +145,22 @@ final class Registry {
 		],
 	];
 
-	public const CFG_HTTP = [
+	/** Cfg baseline for HTTP and CLI. */
+	public const array CFG_COMMON = [
 		'knowledgebase' => [
 			'enabled'  => true,
 			'greeting' => ['prefix' => 'Hello'],
 		],
 	];
 
-	public const ROUTES_HTTP = [
+	/** HTTP routes. */
+	public const array ROUTES_HTTP = [
 		'/hello' => [
 			'controller' => \CitOmni\Knowledgebase\Controller\HelloController::class,
 			'action'     => 'index',
 			'methods'    => ['GET'],
 		],
 	];
-
-	// Same defaults for CLI
-	public const MAP_CLI = self::MAP_HTTP;
-	public const CFG_CLI = self::CFG_HTTP;
 }
 ```
 
