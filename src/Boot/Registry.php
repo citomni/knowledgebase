@@ -50,40 +50,40 @@ final class Registry {
 	public const array CFG_COMMON = [
 	
 		'knowledgebase' => [
-			'embedding_profile' => 'openai-text-embedding-3-small',
-			'chat_profile'      => 'gpt-5.4-nano',
+			'embedding_profile' => 'openai-text-embedding-3-small', // vectorembedding profile for chunk and question embeddings.
+			'chat_profile'      => 'gpt-5.4-nano',                  // helloai profile that writes the answer; also reranks when rerank_profile is null.
 			'chunker' => [
-				'strategy'       => 'fixed_size',
-				'max_tokens'     => 512,
-				'overlap_tokens' => 50,
+				'strategy'       => 'fixed_size', // 'fixed_size' or 'paragraph'.
+				'max_tokens'     => 512,          // Maximum chunk size in estimated tokens.
+				'overlap_tokens' => 50,           // Estimated tokens shared by consecutive chunks; fixed_size only.
 			],
 			'ingest' => [
-				'embedding_batch_size' => 100,
+				'embedding_batch_size' => 100, // Chunks per embedding request, >= 1.
 			],
 			'retrieval' => [
-				'lexical'              => true,
-				'vector'               => true,
-				'rerank'               => true,
-				'synonym_expansion'    => true,
-				'top_k'                => 7,
-				'candidate_multiplier' => 3,
-				'min_similarity'       => 0.70,
-				'min_score'            => 0.0,
-				'min_chunks'           => 1,
-				'allow_low_context'    => false,
+				'lexical'              => true,  // Run the FULLTEXT leg.
+				'vector'               => true,  // Run the embedding leg, and embed chunks at ingest.
+				'rerank'               => true,  // Rerank the candidates with the rerank profile.
+				'synonym_expansion'    => true,  // Expand the FULLTEXT query with synonym groups.
+				'top_k'                => 7,     // Chunks returned per query, >= 1.
+				'candidate_multiplier' => 3,     // Candidates fetched per returned chunk when reranking, >= 1.
+				'min_similarity'       => 0.70,  // Minimum cosine similarity of a vector candidate, -1.0 to 1.0.
+				'min_score'            => 0.0,   // Minimum fused score of a source the answer may use.
+				'min_chunks'           => 1,     // Sources needed before an answer is generated, >= 1.
+				'allow_low_context'    => false, // Answer with fewer than min_chunks sources instead of returning insufficient_context.
 				'fusion' => [
-					'method' => 'rrf',
-					'rrf_k'  => 60,
+					'method' => 'rrf', // Not read: hybrid retrieval always fuses with Reciprocal Rank Fusion.
+					'rrf_k'  => 60,    // Reciprocal Rank Fusion constant, >= 1; higher flattens rank differences.
 				],
-				'rerank_profile' => null,
+				'rerank_profile' => null, // helloai profile for reranking; null or '' uses chat_profile.
 			],
 			'prompt' => [
-				'system_template'    => null,
-				'max_context_tokens' => 4000,
-				'language'           => null,
+				'system_template'    => null, // System prompt template; null or '' uses the built-in one.
+				'max_context_tokens' => 4000, // Estimated tokens of chunk context in the prompt, >= 1.
+				'language'           => null, // Answer language; null or '' takes the knowledge base's, then locale.language.
 			],
 			'query_log' => [
-				'enabled' => false,
+				'enabled' => false, // Log each query on a single knowledge base to know_query_log.
 			],
 		],
 		

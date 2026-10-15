@@ -49,18 +49,6 @@ use CitOmni\KnowledgeBase\Util\PromptBuilder;
  */
 final class QueryKnowledgeBase extends BaseOperation {
 
-	/** @var int Default number of final chunks requested from the retrieval pipeline. */
-	private const DEFAULT_TOP_K = 5;
-
-	/** @var float Default post-fusion minimum score threshold for keeping retrieved chunks. */
-	private const DEFAULT_MIN_SCORE = 0.0;
-
-	/** @var int Default minimum number of qualifying chunks required before answering. */
-	private const DEFAULT_MIN_CHUNKS = 1;
-
-	/** @var int Default token budget reserved for prompt-visible chunk context. */
-	private const DEFAULT_MAX_CONTEXT_TOKENS = 4000;
-
 	/** @var string Extra system instruction used when low-context answering is explicitly allowed. */
 	private const LOW_CONTEXT_INSTRUCTION = 'The retrieved context may be insufficient. State clearly if you cannot answer confidently.';
 
@@ -112,11 +100,11 @@ final class QueryKnowledgeBase extends BaseOperation {
 
 			// -- 2. Resolve retrieval flags ----------------------------------
 			$retrievalCfg = $this->app->cfg->knowledgebase->retrieval;
-			$lexicalEnabled = $this->normalizeBool($input['lexical'] ?? ($retrievalCfg->lexical ?? true), 'lexical');
-			$vectorEnabled = $this->normalizeBool($input['vector'] ?? ($retrievalCfg->vector ?? true), 'vector');
-			$rerankEnabled = $this->normalizeBool($input['rerank'] ?? ($retrievalCfg->rerank ?? false), 'rerank');
+			$lexicalEnabled = $this->normalizeBool($input['lexical'] ?? $retrievalCfg->lexical, 'lexical');
+			$vectorEnabled = $this->normalizeBool($input['vector'] ?? $retrievalCfg->vector, 'vector');
+			$rerankEnabled = $this->normalizeBool($input['rerank'] ?? $retrievalCfg->rerank, 'rerank');
 			$synonymExpansionEnabled = $this->normalizeBool(
-				$input['synonym_expansion'] ?? ($retrievalCfg->synonym_expansion ?? true),
+				$input['synonym_expansion'] ?? $retrievalCfg->synonym_expansion,
 				'synonym_expansion'
 			);
 
@@ -134,10 +122,10 @@ final class QueryKnowledgeBase extends BaseOperation {
 				'vector' => $vectorEnabled,
 				'rerank' => $rerankEnabled,
 				'synonym_expansion' => $synonymExpansionEnabled,
-				'candidate_multiplier' => $input['candidate_multiplier'] ?? ($retrievalCfg->candidate_multiplier ?? null),
-				'min_similarity' => $input['min_similarity'] ?? ($retrievalCfg->min_similarity ?? null),
-				'rrf_k' => $input['rrf_k'] ?? (($retrievalCfg->fusion->rrf_k) ?? null),
-				'rerank_profile' => $input['rerank_profile'] ?? ($retrievalCfg->rerank_profile ?? null),
+				'candidate_multiplier' => $input['candidate_multiplier'] ?? $retrievalCfg->candidate_multiplier,
+				'min_similarity' => $input['min_similarity'] ?? $retrievalCfg->min_similarity,
+				'rrf_k' => $input['rrf_k'] ?? $retrievalCfg->fusion->rrf_k,
+				'rerank_profile' => $input['rerank_profile'] ?? $retrievalCfg->rerank_profile,
 			]);
 
 			$sources = $this->filterSourcesByMinScore($retrieval['chunks'] ?? [], $minScore);
@@ -319,7 +307,7 @@ final class QueryKnowledgeBase extends BaseOperation {
 			return $this->normalizeLanguage($input['language'], 'language');
 		}
 
-		$cfgLanguage = $this->app->cfg->knowledgebase->prompt->language ?? null;
+		$cfgLanguage = $this->app->cfg->knowledgebase->prompt->language;
 		if ($cfgLanguage !== null && \trim((string)$cfgLanguage) !== '') {
 			return $this->normalizeLanguage($cfgLanguage, 'cfg.knowledgebase.prompt.language');
 		}
@@ -347,6 +335,7 @@ final class QueryKnowledgeBase extends BaseOperation {
 			return $languages[0];
 		}
 
+		// locale.language is application cfg.
 		$localeLanguage = $this->app->cfg->locale->language ?? null;
 		if ($localeLanguage === null || \trim((string)$localeLanguage) === '') {
 			return null;
@@ -374,7 +363,7 @@ final class QueryKnowledgeBase extends BaseOperation {
 	 * @throws RetrievalException When invalid.
 	 */
 	private function resolveTopK(array $input): int {
-		$value = $input['top_k'] ?? ($this->app->cfg->knowledgebase->retrieval->top_k ?? self::DEFAULT_TOP_K);
+		$value = $input['top_k'] ?? $this->app->cfg->knowledgebase->retrieval->top_k;
 		return $this->normalizePositiveInt($value, 'top_k');
 	}
 
@@ -387,7 +376,7 @@ final class QueryKnowledgeBase extends BaseOperation {
 	 * @throws RetrievalException When invalid.
 	 */
 	private function resolveMinScore(array $input): float {
-		$value = $input['min_score'] ?? ($this->app->cfg->knowledgebase->retrieval->min_score ?? self::DEFAULT_MIN_SCORE);
+		$value = $input['min_score'] ?? $this->app->cfg->knowledgebase->retrieval->min_score;
 		return $this->normalizeScore($value, 'min_score');
 	}
 
@@ -400,7 +389,7 @@ final class QueryKnowledgeBase extends BaseOperation {
 	 * @throws RetrievalException When invalid.
 	 */
 	private function resolveMinChunks(array $input): int {
-		$value = $input['min_chunks'] ?? ($this->app->cfg->knowledgebase->retrieval->min_chunks ?? self::DEFAULT_MIN_CHUNKS);
+		$value = $input['min_chunks'] ?? $this->app->cfg->knowledgebase->retrieval->min_chunks;
 		return $this->normalizePositiveInt($value, 'min_chunks');
 	}
 
@@ -413,7 +402,7 @@ final class QueryKnowledgeBase extends BaseOperation {
 	 * @throws RetrievalException When invalid.
 	 */
 	private function resolveAllowLowContext(array $input): bool {
-		$value = $input['allow_low_context'] ?? ($this->app->cfg->knowledgebase->retrieval->allow_low_context ?? false);
+		$value = $input['allow_low_context'] ?? $this->app->cfg->knowledgebase->retrieval->allow_low_context;
 		return $this->normalizeBool($value, 'allow_low_context');
 	}
 
@@ -426,7 +415,7 @@ final class QueryKnowledgeBase extends BaseOperation {
 	 * @throws RetrievalException When invalid.
 	 */
 	private function resolveSystemTemplate(array $input): ?string {
-		$value = $input['system_prompt'] ?? ($this->app->cfg->knowledgebase->prompt->system_template ?? null);
+		$value = $input['system_prompt'] ?? $this->app->cfg->knowledgebase->prompt->system_template;
 		if ($value === null) {
 			return null;
 		}
@@ -446,7 +435,7 @@ final class QueryKnowledgeBase extends BaseOperation {
 	 * @throws RetrievalException When invalid.
 	 */
 	private function resolveMaxContextTokens(array $input): int {
-		$value = $input['max_context_tokens'] ?? ($this->app->cfg->knowledgebase->prompt->max_context_tokens ?? self::DEFAULT_MAX_CONTEXT_TOKENS);
+		$value = $input['max_context_tokens'] ?? $this->app->cfg->knowledgebase->prompt->max_context_tokens;
 		return $this->normalizePositiveInt($value, 'max_context_tokens');
 	}
 
@@ -458,7 +447,7 @@ final class QueryKnowledgeBase extends BaseOperation {
 	 * @throws RetrievalException When missing.
 	 */
 	private function resolveChatProfile(): string {
-		$profile = \trim((string)($this->app->cfg->knowledgebase->chat_profile ?? ''));
+		$profile = \trim((string)$this->app->cfg->knowledgebase->chat_profile);
 		if ($profile === '') {
 			throw new RetrievalException('cfg.knowledgebase.chat_profile must not be empty.');
 		}
@@ -473,7 +462,7 @@ final class QueryKnowledgeBase extends BaseOperation {
 	 * @throws RetrievalException When missing.
 	 */
 	private function resolveEmbeddingProfile(): string {
-		$profile = \trim((string)($this->app->cfg->knowledgebase->embedding_profile ?? ''));
+		$profile = \trim((string)$this->app->cfg->knowledgebase->embedding_profile);
 		if ($profile === '') {
 			throw new RetrievalException('cfg.knowledgebase.embedding_profile must not be empty.');
 		}
@@ -782,7 +771,7 @@ final class QueryKnowledgeBase extends BaseOperation {
 	 * @return void
 	 */
 	private function logQuery(array $effectiveKnowledgeBaseIds, string $question, int $topK, array $sources, array $retrievalMeta): void {
-		$enabled = (bool)($this->app->cfg->knowledgebase->query_log->enabled ?? false);
+		$enabled = (bool)$this->app->cfg->knowledgebase->query_log->enabled;
 		if (!$enabled) {
 			return;
 		}

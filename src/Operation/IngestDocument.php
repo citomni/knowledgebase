@@ -142,15 +142,14 @@ final class IngestDocument extends BaseOperation {
 		// -- 2. Resolve cfg ---------------------------------------------------
 
 		$chunkerCfg = $this->app->cfg->knowledgebase->chunker;
-		$this->chunkerStrategy = (string)($chunkerCfg->strategy ?? 'fixed_size');
-		$this->chunkerMaxTokens = (int)($chunkerCfg->max_tokens ?? 512);
-		$this->chunkerOverlapTokens = (int)($chunkerCfg->overlap_tokens ?? 50);
+		$this->chunkerStrategy = (string)$chunkerCfg->strategy;
+		$this->chunkerMaxTokens = (int)$chunkerCfg->max_tokens;
+		$this->chunkerOverlapTokens = (int)$chunkerCfg->overlap_tokens;
 
-		$vectorEnabled = (bool)($this->app->cfg->knowledgebase->retrieval->vector ?? true);
-		$embeddingProfile = (string)($this->app->cfg->knowledgebase->embedding_profile ?? '');
+		$vectorEnabled = (bool)$this->app->cfg->knowledgebase->retrieval->vector;
+		$embeddingProfile = (string)$this->app->cfg->knowledgebase->embedding_profile;
 
-		// Requires Registry baseline: cfg.knowledgebase.ingest.embedding_batch_size
-		$embeddingBatchSize = (int)($this->app->cfg->knowledgebase->ingest->embedding_batch_size ?? 100);
+		$embeddingBatchSize = (int)$this->app->cfg->knowledgebase->ingest->embedding_batch_size;
 
 		// Fail-fast: vector enabled but no embedding profile configured
 		if ($vectorEnabled && $embeddingProfile === '') {

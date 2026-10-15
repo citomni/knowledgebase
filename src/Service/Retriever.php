@@ -60,38 +60,6 @@ use CitOmni\KnowledgeBase\Util\ScoreFusion;
 final class Retriever extends BaseService {
 
 	/**
-	 * Default number of final chunks to return when no explicit top_k override is provided.
-	 */
-	private const DEFAULT_TOP_K = 5;
-
-
-	/**
-	 * Default multiplier used to expand the candidate pool before reranking.
-	 *
-	 * Example:
-	 * - top_k = 5
-	 * - candidate_multiplier = 3
-	 * - candidate_k = 15
-	 */
-	private const DEFAULT_CANDIDATE_MULTIPLIER = 3;
-
-	
-	/**
-	 * Default minimum cosine similarity for vector-search candidates.
-	 */
-	private const DEFAULT_MIN_SIMILARITY = 0.70;
-	
-	
-	/**
-	 * Default Reciprocal Rank Fusion constant.
-	 *
-	 * Higher values flatten rank differences slightly; lower values increase
-	 * the impact of top positions.
-	 */
-	private const DEFAULT_RRF_K = 60;
-	
-	
-	/**
 	 * Maximum allowed length for the generated boolean FULLTEXT query string.
 	 *
 	 * Expansion is truncated at the last complete synonym group before this
@@ -315,33 +283,33 @@ final class Retriever extends BaseService {
 		$cfg = $this->app->cfg->knowledgebase->retrieval;
 		$fusionCfg = $cfg->fusion;
 
-		$lexical = $this->normalizeBool($options['lexical'] ?? ($cfg->lexical ?? true), 'lexical');
-		$vector = $this->normalizeBool($options['vector'] ?? ($cfg->vector ?? true), 'vector');
-		$rerank = $this->normalizeBool($options['rerank'] ?? ($cfg->rerank ?? false), 'rerank');
+		$lexical = $this->normalizeBool($options['lexical'] ?? $cfg->lexical, 'lexical');
+		$vector = $this->normalizeBool($options['vector'] ?? $cfg->vector, 'vector');
+		$rerank = $this->normalizeBool($options['rerank'] ?? $cfg->rerank, 'rerank');
 		$synonymExpansion = $this->normalizeBool(
-			$options['synonym_expansion'] ?? ($cfg->synonym_expansion ?? true),
+			$options['synonym_expansion'] ?? $cfg->synonym_expansion,
 			'synonym_expansion'
 		);
 
-		$topK = $this->normalizePositiveInt($options['top_k'] ?? ($cfg->top_k ?? self::DEFAULT_TOP_K), 'top_k');
+		$topK = $this->normalizePositiveInt($options['top_k'] ?? $cfg->top_k, 'top_k');
 		$candidateMultiplier = $this->normalizePositiveInt(
-			$options['candidate_multiplier'] ?? ($cfg->candidate_multiplier ?? self::DEFAULT_CANDIDATE_MULTIPLIER),
+			$options['candidate_multiplier'] ?? $cfg->candidate_multiplier,
 			'candidate_multiplier'
 		);
 		$minSimilarity = $this->normalizeSimilarity(
-			$options['min_similarity'] ?? ($cfg->min_similarity ?? self::DEFAULT_MIN_SIMILARITY),
+			$options['min_similarity'] ?? $cfg->min_similarity,
 			'min_similarity'
 		);
-		$rrfK = $this->normalizePositiveInt($options['rrf_k'] ?? ($fusionCfg->rrf_k ?? self::DEFAULT_RRF_K), 'rrf_k');
+		$rrfK = $this->normalizePositiveInt($options['rrf_k'] ?? $fusionCfg->rrf_k, 'rrf_k');
 
-		$embeddingProfile = \trim((string)($options['embedding_profile'] ?? ($this->app->cfg->knowledgebase->embedding_profile ?? '')));
+		$embeddingProfile = \trim((string)($options['embedding_profile'] ?? $this->app->cfg->knowledgebase->embedding_profile));
 		if ($vector && $embeddingProfile === '') {
 			throw new RetrievalException('Vector retrieval is enabled but cfg.knowledgebase.embedding_profile is empty.');
 		}
 
-		$rerankProfile = $options['rerank_profile'] ?? ($cfg->rerank_profile ?? null);
+		$rerankProfile = $options['rerank_profile'] ?? $cfg->rerank_profile;
 		if ($rerankProfile === null || \trim((string)$rerankProfile) === '') {
-			$rerankProfile = (string)($this->app->cfg->knowledgebase->chat_profile ?? '');
+			$rerankProfile = (string)$this->app->cfg->knowledgebase->chat_profile;
 		}
 		$rerankProfile = \trim((string)$rerankProfile);
 
@@ -1056,13 +1024,14 @@ final class Retriever extends BaseService {
 	 * @throws RetrievalException When the profile is missing or invalid.
 	 */
 	private function resolveEmbeddingModel(string $profileId): string {
-		$profiles = $this->app->cfg->vectorembedding->profiles->toArray();
+		// vectorembedding.profiles is cfg of citomni/vectorembedding, and the profile id is chosen at runtime.
+		$profile = ($this->app->cfg->vectorembedding->profiles ?? null)?->toArray()[$profileId] ?? null;
 
-		if (!isset($profiles[$profileId]) || !\is_array($profiles[$profileId])) {
+		if (!\is_array($profile)) {
 			throw new RetrievalException('Embedding profile not found: ' . $profileId);
 		}
 
-		$model = $profiles[$profileId]['model'] ?? null;
+		$model = $profile['model'] ?? null;
 
 		if (!\is_string($model) || \trim($model) === '') {
 			throw new RetrievalException('Embedding profile has no valid model: ' . $profileId);
