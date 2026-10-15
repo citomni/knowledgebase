@@ -28,8 +28,8 @@
 	"require": {
 		"php": "^8.5",
 		"ext-json": "*",
-		"citomni/vectorembedding": "^1.0",
-		"citomni/helloai": "^1.0"
+		"citomni/vectorembedding": "^1.0.0.1",
+		"citomni/helloai": "^1.0.0.1"
 	},
 	"autoload": {
 		"psr-4": {
